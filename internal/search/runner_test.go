@@ -387,11 +387,7 @@ func TestRunnerAutoPrefetchFailureIsRetriedByCompleteArchive(t *testing.T) {
 }
 
 func TestRunnerCorruptCachedArchiveRefreshesDuringSameRun(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	objectCache, err := cache.New(false)
-	if err != nil {
-		t.Fatalf("cache.New() error = %v", err)
-	}
+	objectCache := newTestCache(t)
 	snapshot := testSnapshot()
 	archiveKey := cache.Key(snapshot.Repository.CacheNamespace(), "archive", snapshot.Commit)
 	stored, _, err := objectCache.Put(archiveKey, bytes.NewReader([]byte("not a gzip stream")))
@@ -430,11 +426,7 @@ func TestRunnerCorruptCachedArchiveRefreshesDuringSameRun(t *testing.T) {
 }
 
 func TestRunnerDeepCorruptCachedArchiveIsRemoved(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	objectCache, err := cache.New(false)
-	if err != nil {
-		t.Fatalf("cache.New() error = %v", err)
-	}
+	objectCache := newTestCache(t)
 	snapshot := testSnapshot()
 	archiveKey := cache.Key(snapshot.Repository.CacheNamespace(), "archive", snapshot.Commit)
 	corrupt := makeTestArchive(t, testArchiveFile{name: "owner-repo-commit/a.txt", data: []byte("needle\n")})
@@ -719,11 +711,7 @@ func TestRunnerResultLimitTruncatesGlobalOutput(t *testing.T) {
 }
 
 func TestRunnerReusesArchiveCache(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	objectCache, err := cache.New(false)
-	if err != nil {
-		t.Fatalf("cache.New() error = %v", err)
-	}
+	objectCache := newTestCache(t)
 	remote := &fakeProvider{entries: []provider.Entry{{Path: "a.txt", OID: "a"}}, blobs: map[string][]byte{"a": []byte("needle\n")}}
 	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
 	if err != nil {
@@ -751,11 +739,7 @@ func TestRunnerReusesArchiveCache(t *testing.T) {
 }
 
 func TestRunnerExactResultLimitDoesNotCommitPartialArchive(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	objectCache, err := cache.New(false)
-	if err != nil {
-		t.Fatalf("cache.New() error = %v", err)
-	}
+	objectCache := newTestCache(t)
 	snapshot := testSnapshot()
 	remote := &fakeProvider{
 		entries: []provider.Entry{{Path: "a.txt", OID: "a"}, {Path: "b.txt", OID: "b"}},
@@ -871,11 +855,7 @@ func TestRunnerInvalidTreeCacheRefreshesFromProvider(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("XDG_CACHE_HOME", t.TempDir())
-			objectCache, err := cache.New(false)
-			if err != nil {
-				t.Fatalf("cache.New() error = %v", err)
-			}
+			objectCache := newTestCache(t)
 			snapshot := testSnapshot()
 			treeKey := cache.Key(snapshot.Repository.CacheNamespace(), "tree", snapshot.Commit)
 			stored, _, err := objectCache.Put(treeKey, bytes.NewReader(tt.cached))
@@ -916,11 +896,7 @@ func TestRunnerInvalidTreeCacheRefreshesFromProvider(t *testing.T) {
 }
 
 func TestRunnerValidTreeCacheHitCountsInSummary(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	objectCache, err := cache.New(false)
-	if err != nil {
-		t.Fatalf("cache.New() error = %v", err)
-	}
+	objectCache := newTestCache(t)
 	snapshot := testSnapshot()
 	treeKey := cache.Key(snapshot.Repository.CacheNamespace(), "tree", snapshot.Commit)
 	stored, _, err := objectCache.Put(treeKey, bytes.NewReader([]byte(`[{"path":"a.txt","oid":"a","mode":"100644"}]`)))
@@ -945,11 +921,7 @@ func TestRunnerValidTreeCacheHitCountsInSummary(t *testing.T) {
 }
 
 func TestRunnerResultLimitDoesNotCommitPartialBlobCache(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	objectCache, err := cache.New(false)
-	if err != nil {
-		t.Fatalf("cache.New() error = %v", err)
-	}
+	objectCache := newTestCache(t)
 	snapshot := testSnapshot()
 	data := append([]byte("needle\n"), bytes.Repeat([]byte{'x'}, 128<<10)...)
 	tracked := &trackingReader{data: data}
@@ -1113,11 +1085,7 @@ func TestConsumeOutcomeCanceledSpoolCleansTemporaryFile(t *testing.T) {
 }
 
 func TestScanArchiveCanceledDuringCachedGzipKeepsValidCache(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	objectCache, err := cache.New(false)
-	if err != nil {
-		t.Fatalf("cache.New() error = %v", err)
-	}
+	objectCache := newTestCache(t)
 	snapshot := testSnapshot()
 	archiveKey := cache.Key(snapshot.Repository.CacheNamespace(), "archive", snapshot.Commit)
 	stored, _, err := objectCache.Put(archiveKey, bytes.NewReader(makeTestArchive(t, testArchiveFile{name: "owner-repo-commit/a.txt", data: []byte("needle\n")})))
@@ -1145,6 +1113,19 @@ func TestScanArchiveCanceledDuringCachedGzipKeepsValidCache(t *testing.T) {
 type cancelAfterErrContext struct {
 	context.Context
 	remaining int
+}
+
+func newTestCache(t *testing.T) *cache.Cache {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", root)
+	t.Setenv("HOME", root)
+	t.Setenv("LocalAppData", root)
+	objectCache, err := cache.New(false)
+	if err != nil {
+		t.Fatalf("cache.New() error = %v", err)
+	}
+	return objectCache
 }
 
 func (c *cancelAfterErrContext) Err() error {

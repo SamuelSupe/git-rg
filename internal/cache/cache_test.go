@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -44,16 +45,12 @@ func TestPutOpenAndPrunePreserveSecureFilesAndEvictOldest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat(new checksum) error = %v", err)
 	}
-	if got := checksumInfo.Mode().Perm(); got != 0o600 {
-		t.Fatalf("new checksum mode = %#o, want 0600", got)
-	}
+	assertPrivateFileMode(t, checksumInfo, "new checksum")
 	info, err := os.Stat(newFile)
 	if err != nil {
 		t.Fatalf("Stat(new) error = %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("new entry mode = %#o, want 0600", got)
-	}
+	assertPrivateFileMode(t, info, "new entry")
 
 	reader, hit, err := c.Open(newKey)
 	if err != nil || !hit {
@@ -73,6 +70,16 @@ func TestPutOpenAndPrunePreserveSecureFilesAndEvictOldest(t *testing.T) {
 	}
 	if _, err := os.Stat(newFile); err != nil {
 		t.Fatalf("new entry missing after prune: %v", err)
+	}
+}
+
+func assertPrivateFileMode(t *testing.T, info os.FileInfo, label string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("%s mode = %#o, want 0600", label, got)
 	}
 }
 
