@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"git-rg/internal/output"
-	"git-rg/internal/provider"
+	"github.com/SamuelSupe/git-rg/internal/output"
+	"github.com/SamuelSupe/git-rg/internal/provider"
 )
 
 const refsUsageText = `Usage: git-rg refs [FLAGS] REPOSITORY

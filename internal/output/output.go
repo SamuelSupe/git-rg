@@ -6,8 +6,8 @@ import (
 	"io"
 	"strings"
 
-	"git-rg/internal/provider"
-	"git-rg/internal/search"
+	"github.com/SamuelSupe/git-rg/internal/provider"
+	"github.com/SamuelSupe/git-rg/internal/search"
 )
 
 type Renderer struct {

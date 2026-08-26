@@ -4,7 +4,7 @@ import (
 	"os"
 	"runtime/debug"
 
-	"git-rg/internal/cli"
+	"github.com/SamuelSupe/git-rg/internal/cli"
 )
 
 var version = "dev"

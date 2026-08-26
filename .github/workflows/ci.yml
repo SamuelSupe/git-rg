@@ -8,8 +8,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  quality:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -19,3 +19,59 @@ jobs:
       - run: go test -race ./...
       - run: go vet ./...
       - run: go build ./cmd/git-rg
+
+  compatibility:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+            binary: ./git-rg-smoke
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            binary: ./git-rg-smoke
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            binary: ./git-rg-smoke
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+            binary: ./git-rg-smoke
+          - runner: windows-2025
+            goos: windows
+            goarch: amd64
+            binary: ./git-rg-smoke.exe
+          - runner: windows-11-arm
+            goos: windows
+            goarch: arm64
+            binary: ./git-rg-smoke.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+      - name: Build native binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -o ${{ matrix.binary }} ./cmd/git-rg
+      - name: Smoke CLI entry points
+        shell: pwsh
+        run: |
+          $version = & "${{ matrix.binary }}" --version
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^git-rg ') {
+            throw "unexpected --version output: $version"
+          }
+          & "${{ matrix.binary }}" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw "--help failed"
+          }

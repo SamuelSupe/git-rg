@@ -23,45 +23,77 @@
 - 当前实现的 provider 只有 `github` 和 `gitlab`。完整 tree+blob 路径只纳入模式为 `100644`/`100755` 的 blob；`indexed` 路径使用代码索引给出的路径，不证明真实 mode 或 symlink 属性；archive 流只处理 tar regular file，非 regular entry 会跳过。
 - 必须能访问对应 API。当前没有内置离线模式、通用 Git 服务器协议或本地路径搜索；预构建二进制通过 GitHub Releases 提供。
 
-## 5 分钟上手
+## 安装
 
-需要 Go `1.26`（见 `go.mod`）以及访问 GitHub/GitLab API 的网络连接：
+v0.2.0 提供六个 Tier 1 预构建组合：Linux、macOS、Windows 的 `amd64`（x86_64）和 `arm64`。二进制用户不需要安装 Go；脚本和包管理器都会在安装前校验 Release 的 SHA-256。v0.2.0 是当前支持版本，v0.1.0 仅保留下载并已进入 EOL；完整策略见 [`SUPPORT.md`](SUPPORT.md)。完整的安装、升级、卸载和故障排查说明见 [`docs/installation.md`](docs/installation.md)。
+
+### 推荐方式
+
+Linux/macOS 可以安装到用户目录（不会自动使用 sudo）：
 
 ```sh
-# 1. 在 git-rg 源码目录构建
-go build -o ./git-rg ./cmd/git-rg
-
-# 也可以安装到 Go 的 bin 目录
-# go install ./cmd/git-rg
-
-# 2. 查看版本并搜索公共仓库（不 clone 目标仓库）
-./git-rg --help
-./git-rg --version
-./git-rg -F "TODO" github:OWNER/REPO
-
-# 3. agent 通常消费 NDJSON；所有 flags 放在 PATTERN/REPOSITORY 之前
-./git-rg --mode exact --format ndjson -g '*.go' TODO github:OWNER/REPO
+curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
+  | sh -s -- --version v0.2.0 --bin-dir "$HOME/.local/bin"
+git-rg --version
 ```
 
-仓库内的 `.github/workflows/ci.yml` 在 push/pull request 上执行 `go test -race ./...`、`go vet ./...` 和构建。`.github/workflows/release.yml` 在 `v*` tag 上交叉构建 Linux、macOS、Windows 的 amd64/arm64 archive，生成 `checksums.txt` 并创建 GitHub release。
+Windows PowerShell：
 
-### Release 安装（`v0.1.0`）
+```powershell
+$script = Join-Path $env:TEMP "git-rg-install.ps1"
+Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $script
+& $script -Version v0.2.0
+git-rg --version
+```
 
-[`v0.1.0`](https://github.com/SamuelSupe/git-rg/releases/tag/v0.1.0) 资产覆盖 Linux/macOS/Windows 的 x86_64（Go 名称 `amd64`）和 arm64：
+若环境已有 Go `1.26` 或更高版本，也可以直接安装源码中的命令：
+
+```sh
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.2.0
+# 持续跟随最新稳定版本：
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
+```
+
+### 包管理器
+
+```sh
+# macOS/Linux（需要 Homebrew）
+brew install SamuelSupe/tap/git-rg
+brew upgrade SamuelSupe/tap/git-rg
+
+# 卸载
+brew uninstall git-rg
+```
+
+```powershell
+# Windows（需要 Scoop）
+scoop bucket add samuelsupe https://github.com/SamuelSupe/scoop-bucket
+scoop install git-rg
+scoop update git-rg
+
+# 卸载
+scoop uninstall git-rg
+```
+
+### Release 手工下载
+
+固定版本的 Release 页面：[v0.2.0](https://github.com/SamuelSupe/git-rg/releases/tag/v0.2.0)。Release 共包含 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。每个 archive 有一个顶层版本目录，目录内包含对应平台的单个可执行文件；资产名称如下：
 
 | 平台 | 资产 |
 | --- | --- |
-| Linux x86_64 | `git-rg_v0.1.0_linux_amd64.tar.gz` |
-| Linux arm64 | `git-rg_v0.1.0_linux_arm64.tar.gz` |
-| macOS x86_64 | `git-rg_v0.1.0_darwin_amd64.tar.gz` |
-| macOS arm64 | `git-rg_v0.1.0_darwin_arm64.tar.gz` |
-| Windows x86_64 | `git-rg_v0.1.0_windows_amd64.zip` |
-| Windows arm64 | `git-rg_v0.1.0_windows_arm64.zip` |
+| Linux x86_64 | `git-rg_v0.2.0_linux_amd64.tar.gz` |
+| Linux arm64 | `git-rg_v0.2.0_linux_arm64.tar.gz` |
+| macOS x86_64 | `git-rg_v0.2.0_darwin_amd64.tar.gz` |
+| macOS arm64 | `git-rg_v0.2.0_darwin_arm64.tar.gz` |
+| Windows x86_64 | `git-rg_v0.2.0_windows_amd64.zip` |
+| Windows arm64 | `git-rg_v0.2.0_windows_arm64.zip` |
 
-Linux/macOS 示例（以下以 Linux x86_64 为例；macOS 可将 `sha256sum` 换为 `shasum -a 256`）：
+两个安装脚本和 `checksums.txt` 也直接附在 Release 页面中；脚本只选择当前 OS/架构的 archive，并在写入安装目录前校验其 checksum。
+
+Linux/macOS 手工下载示例（macOS 可将 `sha256sum` 换为 `shasum -a 256`）：
 
 ```sh
-version=v0.1.0
+version=v0.2.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -71,18 +103,42 @@ tar -xzf "$asset"
 "./git-rg_${version}_linux_amd64/git-rg" --version
 ```
 
-Windows PowerShell 示例（以 x86_64 为例）：
+Windows PowerShell 手工下载示例（以 x86_64 为例）：
 
 ```powershell
-$Version = "v0.1.0"
+$Version = "v0.2.0"
 $Asset = "git-rg_${Version}_windows_amd64.zip"
 $Base = "https://github.com/SamuelSupe/git-rg/releases/download/$Version"
 Invoke-WebRequest -Uri "$Base/$Asset" -OutFile $Asset
 Invoke-WebRequest -Uri "$Base/checksums.txt" -OutFile checksums.txt
-Get-FileHash -Path $Asset -Algorithm SHA256  # 与 checksums.txt 中对应行比较
+$expected = (Select-String -Path checksums.txt -Pattern " $([regex]::Escape($Asset))$").Line.Split()[0]
+$actual = (Get-FileHash -Path $Asset -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($expected -ne $actual) { throw "checksum mismatch" }
 Expand-Archive -Path $Asset -DestinationPath .
 & ".\git-rg_${Version}_windows_amd64\git-rg.exe" --version
 ```
+
+脚本、包管理器和手工下载都是同一份 GitHub Release 资产；没有 Release 资产的版本不会被安装器接受。安装后可执行文件只需在 `PATH` 中，搜索本身仍只访问远程 API，不会 clone 目标仓库。
+
+仓库内的 `.github/workflows/ci.yml` 在 push/pull request 上执行 `go test -race ./...`、`go vet ./...` 和构建。`.github/workflows/release.yml` 在 `v*` tag 上用六个平台原生 runner 构建 archive，创建包含 6 个 archive、两个安装脚本和 `checksums.txt` 的 GitHub Release，并在发布后运行对应平台安装和 GitHub/GitLab smoke。
+
+## 5 分钟上手
+
+需要 Go `1.26`（仅源码构建或 `go install` 需要）以及访问 GitHub/GitLab API 的网络连接：
+
+```sh
+# 1. 查看版本和帮助
+git-rg --version
+git-rg --help
+
+# 2. 搜索公共仓库（不 clone 目标仓库）
+git-rg -F "TODO" github:OWNER/REPO
+
+# 3. agent 通常消费 NDJSON；所有 flags 放在 PATTERN/REPOSITORY 之前
+git-rg --mode exact --format ndjson -g '*.go' TODO github:OWNER/REPO
+```
+
+安装脚本的完整参数、PATH 处理、校验失败处置以及固定版本升级方式见 [`docs/installation.md`](docs/installation.md)。
 
 ## 仓库地址与示例
 
@@ -284,7 +340,7 @@ warning（例如默认 `auto` 的 `index_unavailable`）本身不改变退出码
 
 ## 平台限制与安全说明
 
-- 代码使用 Go 标准库，未实现平台专用二进制；请在 Go `1.26` 支持的平台上自行构建。运行依赖可访问的 GitHub/GitLab API，当前不承诺离线、代理配置、SSH 认证或其他 Git 服务兼容性。
+- 代码使用 Go 标准库；v0.2.0 预构建 Linux/macOS/Windows 的 `amd64` 和 `arm64`，其他 Go `1.26` 支持的平台可以自行构建并按 best effort 使用。运行依赖可访问的 GitHub/GitLab API，当前不承诺离线、代理配置、SSH 认证或其他 Git 服务兼容性。
 - 远端响应使用默认 Go HTTP transport；单个请求最多尝试 3 次，针对 429、5xx、已耗尽限流的 403，以及带正 `Retry-After` 的 403 secondary rate limit 尊重 `Retry-After`/reset。最多允许 5 次重定向，拒绝 HTTPS 降级；GitHub archive 可能临时跨 host 重定向，此时只在目标仍为 HTTPS 时跟随，并剥离 `Authorization`、`PRIVATE-TOKEN` 和 Cookie。
 - GitHub Git Blob OID 路径会拒绝大于 100 MiB 的对象；archive 路径不受这个 provider blob API 上限约束，但本地仍执行单文本文件 `512 MiB`、archive 压缩输入 `512 MiB`、解压输出 `4 GiB`、1,000,000 个 header、单路径 `1 MiB` 和累计 `128 MiB` 路径元数据的硬预算，NUL 路径会作为无效 archive 拒绝。API JSON 解码限制为 `16 MiB`；provider 收集中的单个远端字段也限制为 `1 MiB`，完整 tree 收集最多 1,000,000 个远端 item、`128 MiB` 元数据和 1,000 次逻辑分页/子树请求。文件先探测前 8 KiB；实际读取链路中一旦发现 NUL（包括超过首 8 KiB），会丢弃该文件已暂存的全部匹配结果并计入 `skipped_binary`。达到 `result_limit` 会先停止，未读取的后缀不作检查承诺。
 - token 只通过请求头发送；仓库 HTTP(S) 地址和 `--api-base` 不接受 URL 凭据。不要把私有 token 或私有仓库缓存目录暴露给其他用户。

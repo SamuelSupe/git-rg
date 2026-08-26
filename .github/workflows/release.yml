@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  quality:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -19,32 +19,186 @@ jobs:
           cache: true
       - run: go test -race ./...
       - run: go vet ./...
-      - name: Build release archives
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+          - runner: windows-2025
+            goos: windows
+            goarch: amd64
+          - runner: windows-11-arm
+            goos: windows
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and package native binary
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          $version = "${{ github.ref_name }}"
+          $directory = "git-rg_${version}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          $outputDirectory = Join-Path "dist" $directory
+          New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
+
+          $binaryName = if ("${{ matrix.goos }}" -eq "windows") { "git-rg.exe" } else { "git-rg" }
+          $binaryPath = Join-Path $outputDirectory $binaryName
+          go build -trimpath -ldflags "-s -w -X main.version=$version" -o $binaryPath ./cmd/git-rg
+          if ($LASTEXITCODE -ne 0) { throw "go build failed" }
+
+          $reportedVersion = & $binaryPath --version
+          if ($LASTEXITCODE -ne 0 -or $reportedVersion -ne "git-rg $version") {
+            throw "unexpected version: $reportedVersion"
+          }
+          & $binaryPath --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "--help failed" }
+
+          if ("${{ matrix.goos }}" -eq "windows") {
+            Compress-Archive -Path $outputDirectory -DestinationPath "dist/$directory.zip"
+          } else {
+            tar -C dist -czf "dist/$directory.tar.gz" $directory
+            if ($LASTEXITCODE -ne 0) { throw "tar failed" }
+          }
+      - name: Upload release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Verify and checksum release assets
         shell: bash
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME}"
-          mkdir -p dist
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
-            os="${target%/*}"
-            arch="${target#*/}"
-            directory="git-rg_${version}_${os}_${arch}"
-            mkdir -p "dist/${directory}"
-            binary="git-rg"
-            if [[ "${os}" == "windows" ]]; then binary="git-rg.exe"; fi
-            GOOS="${os}" GOARCH="${arch}" CGO_ENABLED=0 go build \
-              -trimpath \
-              -ldflags="-s -w -X main.version=${version}" \
-              -o "dist/${directory}/${binary}" ./cmd/git-rg
-            if [[ "${os}" == "windows" ]]; then
-              (cd dist && zip -q -r "${directory}.zip" "${directory}")
-            else
-              tar -C dist -czf "dist/${directory}.tar.gz" "${directory}"
-            fi
-            rm -rf "dist/${directory}"
+          expected=(
+            "git-rg_${version}_linux_amd64.tar.gz"
+            "git-rg_${version}_linux_arm64.tar.gz"
+            "git-rg_${version}_darwin_amd64.tar.gz"
+            "git-rg_${version}_darwin_arm64.tar.gz"
+            "git-rg_${version}_windows_amd64.zip"
+            "git-rg_${version}_windows_arm64.zip"
+          )
+          for asset in "${expected[@]}"; do
+            test -s "dist/${asset}"
           done
-          (cd dist && sha256sum *.tar.gz *.zip > checksums.txt)
+          cp install.sh install.ps1 dist/
+          (
+            cd dist
+            printf '%s\n' "${expected[@]}" install.sh install.ps1 \
+              | LC_ALL=C sort \
+              | xargs sha256sum > checksums.txt
+            sha256sum -c checksums.txt
+          )
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" dist/* --generate-notes --verify-tag
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --title "git-rg ${GITHUB_REF_NAME}" --generate-notes --verify-tag
+
+  install-smoke:
+    name: Install ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+            script: unix
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            script: unix
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            script: unix
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+            script: unix
+          - runner: windows-2025
+            goos: windows
+            goarch: amd64
+            script: windows
+          - runner: windows-11-arm
+            goos: windows
+            goarch: arm64
+            script: windows
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install release on Linux or macOS
+        if: matrix.script == 'unix'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin_dir="${RUNNER_TEMP}/git-rg-bin"
+          sh ./install.sh --version "${GITHUB_REF_NAME}" --bin-dir "${bin_dir}"
+          test "$("${bin_dir}/git-rg" --version)" = "git-rg ${GITHUB_REF_NAME}"
+      - name: Install release on Windows
+        if: matrix.script == 'windows'
+        shell: pwsh
+        run: |
+          $binDir = Join-Path $env:RUNNER_TEMP "git-rg-bin"
+          & ./install.ps1 -Version "${{ github.ref_name }}" -InstallDir $binDir -NoPathUpdate
+          if ($LASTEXITCODE -ne 0) { throw "installer failed" }
+          $reportedVersion = & (Join-Path $binDir "git-rg.exe") --version
+          if ($reportedVersion -ne "git-rg ${{ github.ref_name }}") {
+            throw "unexpected installed version: $reportedVersion"
+          }
+      - name: Search public GitHub repository
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $binary = if ("${{ matrix.goos }}" -eq "windows") {
+            Join-Path $env:RUNNER_TEMP "git-rg-bin/git-rg.exe"
+          } else {
+            Join-Path $env:RUNNER_TEMP "git-rg-bin/git-rg"
+          }
+          & $binary --mode exact --format text --max-results 1 -F "Hello World!" github:octocat/Hello-World | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "GitHub smoke failed" }
+      - name: Search public GitLab repository
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/git-rg-bin/git-rg" --mode exact --format text --max-results 1 -F test gitlab:gitlab-org/gitlab-test >/dev/null

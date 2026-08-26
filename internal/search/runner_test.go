@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"git-rg/internal/cache"
-	"git-rg/internal/provider"
+	"github.com/SamuelSupe/git-rg/internal/cache"
+	"github.com/SamuelSupe/git-rg/internal/provider"
 )
 
 func TestRunnerExactScansInPathOrderAndSkipsBinary(t *testing.T) {

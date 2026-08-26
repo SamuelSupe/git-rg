@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"git-rg/internal/cache"
-	"git-rg/internal/output"
-	"git-rg/internal/provider"
-	"git-rg/internal/search"
+	"github.com/SamuelSupe/git-rg/internal/cache"
+	"github.com/SamuelSupe/git-rg/internal/output"
+	"github.com/SamuelSupe/git-rg/internal/provider"
+	"github.com/SamuelSupe/git-rg/internal/search"
 )
 
 const usageText = `Usage: git-rg [FLAGS] PATTERN REPOSITORY

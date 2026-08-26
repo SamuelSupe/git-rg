@@ -16,8 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"git-rg/internal/cache"
-	"git-rg/internal/provider"
+	"github.com/SamuelSupe/git-rg/internal/cache"
+	"github.com/SamuelSupe/git-rg/internal/provider"
 )
 
 const binaryProbeSize = 8 << 10

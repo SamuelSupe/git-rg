@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"git-rg/internal/cache"
-	"git-rg/internal/provider"
+	"github.com/SamuelSupe/git-rg/internal/cache"
+	"github.com/SamuelSupe/git-rg/internal/provider"
 )
 
 type Mode string
