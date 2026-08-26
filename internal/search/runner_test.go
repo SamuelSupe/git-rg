@@ -420,8 +420,12 @@ func TestRunnerCorruptCachedArchiveRefreshesDuringSameRun(t *testing.T) {
 	if !hasEventCode(warnings, "cache_read_failed") {
 		t.Fatalf("warnings = %#v, want cache_read_failed", warnings)
 	}
-	if _, hit, err := objectCache.Open(archiveKey); err != nil || !hit {
+	reader, hit, err := objectCache.Open(archiveKey)
+	if err != nil || !hit {
 		t.Fatalf("refreshed archive cache = hit %v, error %v", hit, err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close refreshed archive cache: %v", err)
 	}
 }
 
@@ -956,8 +960,12 @@ func TestRunnerResultLimitDoesNotCommitPartialBlobCache(t *testing.T) {
 	if err != nil || second.MatchedLines != 1 {
 		t.Fatalf("complete scan summary/error = %#v/%v, want one match", second, err)
 	}
-	if _, hit, err := objectCache.Open(blobKey); err != nil || !hit {
+	reader, hit, err := objectCache.Open(blobKey)
+	if err != nil || !hit {
 		t.Fatalf("complete blob cache = hit %v, error %v; want committed entry", hit, err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close complete blob cache: %v", err)
 	}
 	third, err := full.Run(context.Background(), snapshot, func(Event) error { return nil })
 	if err != nil || third.CacheHits != 1 || remote.openCount() != 2 {
