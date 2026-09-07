@@ -87,7 +87,7 @@ func (c *Cache) OpenContext(ctx context.Context, key string) (io.ReadCloser, boo
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	file, err := os.Open(c.path(key))
+	file, err := openEntryFile(c.path(key))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}
@@ -121,7 +121,7 @@ func (c *Cache) OpenContext(ctx context.Context, key string) (io.ReadCloser, boo
 		return nil, false, fmt.Errorf("rewind cache entry: %w", err)
 	}
 	now := time.Now()
-	_ = os.Chtimes(file.Name(), now, now)
+	_ = touchEntryFile(file, now)
 	return file, true, nil
 }
 
