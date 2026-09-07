@@ -227,7 +227,7 @@ func (t *Transaction) Commit() error {
 	if err := t.file.Close(); err != nil {
 		return fmt.Errorf("close cache entry: %w", err)
 	}
-	if err := os.Rename(t.temporary, t.destination); err != nil {
+	if err := replaceEntryFile(t.temporary, t.destination); err != nil {
 		return fmt.Errorf("publish cache entry: %w", err)
 	}
 	t.finished = true

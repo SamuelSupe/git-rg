@@ -14,3 +14,7 @@ func openEntryFile(name string) (*os.File, error) {
 func touchEntryFile(file *os.File, now time.Time) error {
 	return os.Chtimes(file.Name(), now, now)
 }
+
+func replaceEntryFile(temporary, destination string) error {
+	return os.Rename(temporary, destination)
+}
