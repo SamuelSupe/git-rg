@@ -98,7 +98,7 @@ func runSearch(args []string, stdout, stderr io.Writer, version string) (exitCod
 	var fixed, ignoreCase, word, noCache, showVersion, commitInfo bool
 	var globs stringList
 	var before, after, around optionalInt
-	var ref, modeValue, formatValue, providerValue, apiBase string
+	var ref, modeValue, formatValue, providerValue, apiBase, authMode string
 	var maxResults, maxRequests int
 	var timeout time.Duration
 	flags.BoolVar(&fixed, "F", false, "treat PATTERN as a fixed string")
@@ -123,6 +123,7 @@ func runSearch(args []string, stdout, stderr io.Writer, version string) (exitCod
 	flags.IntVar(&maxRequests, "max-requests", 100, "maximum remote HTTP requests including retries; 0 means unlimited")
 	flags.StringVar(&providerValue, "provider", "", "github or gitlab (required for private hosts)")
 	flags.StringVar(&apiBase, "api-base", "", "override the provider API base URL")
+	flags.StringVar(&authMode, "auth", "auto", "credential source: auto (environment, then gh/glab) or env")
 	flags.BoolVar(&noCache, "no-cache", false, "disable the on-disk immutable object cache")
 	flags.DurationVar(&timeout, "timeout", 5*time.Minute, "overall command timeout")
 	flags.BoolVar(&showVersion, "version", false, "print version and exit")
@@ -164,6 +165,10 @@ func runSearch(args []string, stdout, stderr io.Writer, version string) (exitCod
 	}
 	if formatValue != "ndjson" && formatValue != "text" {
 		emitError("invalid_format", fmt.Errorf("unsupported --format %q", formatValue))
+		return 2
+	}
+	if authMode != "auto" && authMode != "env" {
+		emitError("invalid_arguments", errors.New("--auth must be auto or env"))
 		return 2
 	}
 	mode := search.Mode(modeValue)
@@ -212,16 +217,26 @@ func runSearch(args []string, stdout, stderr io.Writer, version string) (exitCod
 		emitError("invalid_repository", err)
 		return 2
 	}
-	remote, err := provider.NewWithOptions(repository, provider.Options{Timeout: timeout, RequestLimit: maxRequests})
-	if err != nil {
-		emitError("provider_init_failed", err)
-		return 2
-	}
-
 	baseContext, stopSignal := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignal()
 	ctx, cancel := context.WithTimeout(baseContext, timeout)
 	defer cancel()
+	token, authWarning, err := provider.ResolveCredentials(ctx, repository, authMode)
+	if err != nil {
+		emitError("provider_init_failed", err)
+		return 2
+	}
+	if authWarning != "" {
+		if err := renderer.Emit(search.Event{Type: "warning", Code: "auth_unavailable", Message: authWarning}); err != nil {
+			fmt.Fprintf(stderr, "git-rg: write_output: %v\n", err)
+			return 2
+		}
+	}
+	remote, err := provider.NewWithOptions(repository, provider.Options{Token: token, Timeout: timeout, RequestLimit: maxRequests})
+	if err != nil {
+		emitError("provider_init_failed", err)
+		return 2
+	}
 
 	snapshot, err := remote.Resolve(ctx, repository, ref)
 	if err != nil {

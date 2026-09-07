@@ -12,14 +12,14 @@
 
 `git-rg` is a small Go command-line tool for remote code search. It resolves a branch, tag, or commit to a fixed commit SHA, reads only the API content needed for the selected search path, and emits agent-friendly NDJSON by default. It supports public, private, and self-managed GitHub/GitLab instances; it does not create a local checkout or download Git history.
 
-## What's new in v0.3.0
+## What's new in v0.4.0
 
-- **Complete commit searches:** exact/auto validate the full tree and archive blob IDs, then fetch files omitted or changed by archive export rules.
-- **Better cache reuse:** narrowed searches use validated blob cache hits before download thresholds; probing is bounded when files are uncached.
-- **Lower allocation and memory costs:** streamed tree filtering, byte-based text matching, compiled globs, and bounded in-memory result buffering reduce repeated work.
-- **Efficient NDJSON streaming:** buffered output reduces small writes while keeping the first match immediate.
+- **Reuse existing logins:** search and `refs` default to `--auth auto`, using the current `gh` or `glab` account for the target host when no environment token is set.
+- **Keep explicit control:** environment tokens retain their existing priority; `--auth env` restores environment-only authentication.
+- **Bound credential lookup:** HTTPS/API origin checks, isolated non-interactive helpers, bounded output, and a 10-second deadline protect the authentication boundary.
+- **Support GitLab PAT and OAuth:** send access tokens with `Authorization: Bearer`; OAuth refresh remains managed by glab.
 
-See the [v0.3.0 release notes](docs/releases/v0.3.0.md) for changes and upgrade details. CLI flags and NDJSON schema v1 remain compatible. Legacy cache entries are rebuilt automatically; the first query after upgrading may download content again.
+See the [v0.4.0 release notes](docs/releases/v0.4.0.md) for upgrade details and glab compatibility limits. The default authentication behavior changes in this release; NDJSON schema v1 remains compatible, with `auth_unavailable` warnings also emitted by `refs`.
 
 ## Install and run
 
@@ -27,7 +27,7 @@ Linux/macOS, installed to a user-owned directory:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.3.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.4.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -36,7 +36,7 @@ Windows PowerShell:
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.3.0
+& $installer -Version v0.4.0
 git-rg --version
 ```
 
@@ -58,11 +58,11 @@ git-rg --ref v1.2.3 --context 2 TODO https://github.com/OWNER/REPO.git
 git-rg refs github:OWNER/REPO
 ```
 
-`PATTERN` is a Go regular expression unless `-F/--fixed-strings` is used. Use `--mode exact` when a complete audit matters; see [Search modes and completeness](#search-modes-and-completeness). For a private repository, set a least-privilege token as described in [Permissions & credential best practices](#permissions--credential-best-practices).
+`PATTERN` is a Go regular expression unless `-F/--fixed-strings` is used. Use `--mode exact` when a complete audit matters; see [Search modes and completeness](#search-modes-and-completeness). For a private repository, reuse an existing `gh`/`glab` login or set a least-privilege token as described in [Permissions & credential best practices](#permissions--credential-best-practices).
 
 ## Contents
 
-- [What's new in v0.3.0](#whats-new-in-v030)
+- [What's new in v0.4.0](#whats-new-in-v040)
 - [Why no clone](#why-no-clone)
 - [Install](#install)
 - [Repository addresses](#repository-addresses)
@@ -87,29 +87,29 @@ The current providers are GitHub and GitLab. There is no offline mode, local-pat
 
 ## Install
 
-v0.3.0 is the current supported release. Earlier v0.x releases remain downloadable for reproduction or rollback but are EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
+v0.4.0 is the current supported release. Earlier v0.x releases remain downloadable for reproduction or rollback but are EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
 
 ### Pre-built platform matrix
 
 The six combinations below are Tier 1 and are shipped for every release:
 
-| Operating system | Architecture | v0.3.0 asset | Support |
+| Operating system | Architecture | v0.4.0 asset | Support |
 | --- | --- | --- | --- |
-| Linux | amd64 (x86_64) | `git-rg_v0.3.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.3.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64 (x86_64) | `git-rg_v0.3.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.3.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64 (x86_64) | `git-rg_v0.3.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.3.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64 (x86_64) | `git-rg_v0.4.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.4.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64 (x86_64) | `git-rg_v0.4.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.4.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64 (x86_64) | `git-rg_v0.4.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.4.0_windows_arm64.zip` | Tier 1 |
 
-Each archive contains one top-level version directory and one executable. The v0.3.0 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
+Each archive contains one top-level version directory and one executable. The v0.4.0 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
 
 ### GitHub Release (manual)
 
-Download the matching asset from the [v0.3.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.3.0), download `checksums.txt`, and verify before extracting:
+Download the matching asset from the [v0.4.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.4.0), download `checksums.txt`, and verify before extracting:
 
 ```sh
-version=v0.3.0
+version=v0.4.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -127,7 +127,7 @@ The script supports amd64 and arm64, defaults to `$HOME/.local/bin`, and does no
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.3.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.4.0 --bin-dir "$HOME/.local/bin"
 ```
 
 Use `--version VERSION` for a fixed release or omit it for the latest release. Use `--bin-dir DIRECTORY` to select the destination. For a reviewable installation, download the script first, inspect it, and then run it. The complete option list and failure handling are in [docs/installation.md](docs/installation.md).
@@ -139,7 +139,7 @@ The script supports Windows amd64 and arm64. It defaults to `%LOCALAPPDATA%\Prog
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.3.0
+& $installer -Version v0.4.0
 git-rg --version
 ```
 
@@ -176,7 +176,7 @@ With Go 1.26 or newer:
 
 ```sh
 # Pin the supported release.
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.3.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.4.0
 
 # Or follow the latest module version.
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -265,7 +265,7 @@ git-rg refs [FLAGS] REPOSITORY
 
 `refs` uses the provider's branch and tag APIs with full pagination. Results are validated, deduplicated, stably sorted, and not disk-cached because refs are mutable:
 
-The v0.3.0 interface is the `refs` subcommand (the list-refs operation); there is no `--list-refs` flag.
+The interface is the `refs` subcommand (the list-refs operation); there is no `--list-refs` flag.
 
 ```sh
 git-rg refs github:OWNER/REPO
@@ -273,7 +273,7 @@ git-rg refs --kind branch gitlab:GROUP/PROJECT
 git-rg refs --kind tag gitlab:GROUP/PROJECT
 ```
 
-Flags are `--kind all|branch|tag`, `--format ndjson|text`, `--max-requests NUM`, `--provider github|gitlab`, `--api-base URL`, and `--timeout DURATION`. A full listing uses pages of up to 100 items. A later-page error returns an error and never labels a partial list complete.
+Flags are `--kind all|branch|tag`, `--format ndjson|text`, `--max-requests NUM`, `--provider github|gitlab`, `--api-base URL`, `--auth auto|env`, and `--timeout DURATION`. A full listing uses pages of up to 100 items. A later-page error returns an error and never labels a partial list complete.
 
 In NDJSON, the normal event sequence is `meta`, one `ref` event per item, and `summary`:
 
@@ -307,6 +307,7 @@ All flags must appear before `PATTERN REPOSITORY`.
 | `--max-requests NUM` | `100` | Remote request budget, including retries and redirects; `0` means unlimited. |
 | `--provider NAME` | inferred | `github` or `gitlab`; required for private/self-managed hosts. |
 | `--api-base URL` | inferred | Override the provider API base URL. |
+| `--auth MODE` | `auto` | Use environment credentials, then the target host's `gh`/`glab` login; `env` disables CLI credential lookup. |
 | `--no-cache` | off | Disable this run's persistent disk-cache reads, writes, and pruning. |
 | `--timeout DURATION` | `5m` | Overall command deadline, such as `30s` or `2m`. |
 | `--version` | — | Print the version and exit `0`; no pattern or repository is required. |
@@ -357,7 +358,30 @@ Warnings such as `index_unavailable` do not change the exit code. `SIGINT` and `
 <a id="permissions--credential-best-practices"></a>
 ## Permissions & credential best practices
 
-`git-rg` sends credentials only in provider-specific request headers. Use the narrowest read-only identity that can read the target repository and its metadata.
+`git-rg` sends credentials in the `Authorization: Bearer` request header. Use the narrowest read-only identity that can read the target repository and its metadata.
+
+### Automatic CLI credentials
+
+Since v0.4.0, `git-rg` defaults to `--auth auto` for both search and `refs`. Unlike the earlier environment-only behavior, an existing login can now authenticate a run without exporting a token:
+
+```sh
+# Sign in once with the corresponding CLI, if necessary.
+gh auth login --hostname github.com
+git-rg TODO github:OWNER/REPO
+
+glab auth login --hostname gitlab.example.com
+git-rg refs --provider gitlab https://gitlab.example.com/GROUP/PROJECT.git
+
+# Keep the previous environment-only behavior, including in CI.
+git-rg --auth env TODO github:OWNER/REPO
+git-rg refs --auth env github:OWNER/REPO
+```
+
+A non-empty environment token always wins, with the order below unchanged. Otherwise, `git-rg` invokes `gh auth token --hostname HOST`, or checks `glab auth status --hostname HOST` before using `glab auth git-credential get`. It uses the current account for that host and keeps the access token only in memory. Reused credentials retain their existing permissions. GitLab PAT and OAuth credentials are supported; CI job tokens returned by the helper are not. The hidden glab helper must be available and work with your version's credential store and OAuth refresh support. An incompatible helper produces a warning; `git-rg` does not parse credential files or implement token refresh. glab may refresh and save its own OAuth credentials during lookup.
+
+Automatic lookup requires HTTPS repository/API URLs with matching origins (including GitHub's `github.com` → `api.github.com` mapping). Self-managed hosts and custom API paths on the expected origin are supported; a different API host or port skips lookup with a warning. Use `GITRG_TOKEN` explicitly for those deployments. Helpers run without a shell or interactive stdin in a temporary working directory, with credential/host overrides and CI auto-login disabled; user configuration directories, proxy settings, and system credential stores remain available. System credential-store access may still require OS authorization.
+
+A missing CLI silently leaves the run anonymous. Failed, unavailable, timed-out, or malformed credentials produce one `auth_unavailable` warning and continue anonymously. Warnings appear on stderr and, for NDJSON, as a `warning` event that can precede `meta`. API authentication failures do not trigger another identity or anonymous retry. The entire helper phase has a 10-second deadline within `--timeout`; an overall timeout or cancellation stops the command. Each helper invocation's combined stdout/stderr is capped at 64 KiB, and raw helper output is never forwarded. `--max-requests` counts only `git-rg` API requests, not glab's status check or OAuth refresh requests.
 
 ### GitHub
 
@@ -371,14 +395,14 @@ Warnings such as `index_unavailable` do not change the exit code. `SIGINT` and `
 
 ### Token lookup and handling
 
-The lookup order is intentionally narrow:
+Environment lookup runs first in both authentication modes:
 
 | Target | Environment variables, in order |
 | --- | --- |
 | Any provider, including self-managed | `GITRG_TOKEN` is always checked first and wins when non-empty. |
 | `github.com` | After `GITRG_TOKEN`, `GITHUB_TOKEN`, then `GH_TOKEN`. These cloud variables are not used for self-managed GitHub. |
 | `gitlab.com` | After `GITRG_TOKEN`, `GITLAB_TOKEN`. This cloud variable is not used for self-managed GitLab. |
-| Self-managed host | Use `GITRG_TOKEN`; there is no host-specific fallback. |
+| Self-managed host | Use `GITRG_TOKEN`; no other environment fallback. `auto` then tries the matching CLI login. |
 
 There is no token CLI flag. Repository URLs and `--api-base` reject embedded credentials, so never put a token in a URL. An unset token may still work for public endpoints; access is decided by the provider. Environment variables are ordinary process inputs—do not promise that a same-user process or diagnostic tool cannot observe them.
 

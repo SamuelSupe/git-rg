@@ -12,15 +12,15 @@
 
 `git-rg` 是一个用 Go 编写的远程代码搜索命令行工具。它会先把分支、tag 或 commit 解析为固定的 commit SHA，再按所选搜索路径从 API 按需读取内容，默认输出适合 agent 消费的 NDJSON。它支持公开、私有以及自建的 GitHub/GitLab 实例；不会创建本地工作树，也不会下载 Git 历史。
 
-<a id="whats-new-in-v030"></a>
-## v0.3.0 更新
+<a id="whats-new-in-v040"></a>
+## v0.4.0 更新
 
-- **完整扫描 commit 内容**：exact/auto 核验完整 tree 和 archive 中的 blob ID，补读被 archive 导出规则遗漏或改写的文件。
-- **更充分地复用缓存**：缩小范围的查询在应用下载门槛前利用已校验的 blob 缓存；未命中时限制探测开销。
-- **减少分配与内存开销**：流式筛选 tree、按字节匹配文本、预编译 glob，并使用有界的内存结果缓冲，减少重复处理。
-- **更高效地输出 NDJSON**：缓冲小块写入，同时立即输出首条匹配。
+- **复用已有登录**：搜索和 `refs` 默认使用 `--auth auto`，未设置环境变量 token 时，复用目标站点当前的 `gh` 或 `glab` 账号。
+- **保留显式控制**：环境变量 token 的优先级不变；`--auth env` 可恢复仅环境变量的认证方式。
+- **限制凭证读取边界**：检查 HTTPS/API origin，隔离非交互 helper，限制输出大小，并设置 10 秒读取期限。
+- **支持 GitLab PAT 和 OAuth**：通过 `Authorization: Bearer` 发送 access token，OAuth 刷新仍由 glab 管理。
 
-完整变更和升级说明见 [v0.3.0 发布说明](docs/releases/v0.3.0.md)。CLI 参数和 NDJSON schema v1 保持兼容。旧缓存会自动重新构建，升级后的首次查询可能重新下载内容。
+升级说明和 glab 兼容边界见 [v0.4.0 发布说明](docs/releases/v0.4.0.md)。本版本改变了默认认证行为；NDJSON schema v1 保持兼容，`refs` 也会输出 `auth_unavailable` warning。
 
 ## 安装并运行
 
@@ -28,7 +28,7 @@ Linux/macOS，安装到用户目录：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.3.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.4.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -37,7 +37,7 @@ Windows PowerShell：
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.3.0
+& $installer -Version v0.4.0
 git-rg --version
 ```
 
@@ -59,11 +59,11 @@ git-rg --ref v1.2.3 --context 2 TODO https://github.com/OWNER/REPO.git
 git-rg refs github:OWNER/REPO
 ```
 
-除非使用 `-F/--fixed-strings`，`PATTERN` 会按 Go 正则表达式解释。需要完整审计时使用 `--mode exact`，详见[搜索模式与完整性](#search-modes-and-completeness)。搜索私有仓库前，请按[权限与凭证最佳实践](#permissions--credential-best-practices)设置最小权限 token。
+除非使用 `-F/--fixed-strings`，`PATTERN` 会按 Go 正则表达式解释。需要完整审计时使用 `--mode exact`，详见[搜索模式与完整性](#search-modes-and-completeness)。搜索私有仓库时，可以复用已有 `gh`/`glab` 登录，或按[权限与凭证最佳实践](#permissions--credential-best-practices)设置最小权限 token。
 
 ## 目录
 
-- [v0.3.0 更新](#whats-new-in-v030)
+- [v0.4.0 更新](#whats-new-in-v040)
 - [为什么不需要 clone](#why-no-clone)
 - [安装](#install)
 - [仓库地址](#repository-addresses)
@@ -90,29 +90,29 @@ git-rg refs github:OWNER/REPO
 <a id="install"></a>
 ## 安装
 
-v0.3.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
+v0.4.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
 
 ### 预构建平台矩阵
 
 以下六种组合属于 Tier 1，每个 Release 都会提供：
 
-| 操作系统 | 架构 | v0.3.0 资产 | 支持级别 |
+| 操作系统 | 架构 | v0.4.0 资产 | 支持级别 |
 | --- | --- | --- | --- |
-| Linux | amd64（x86_64） | `git-rg_v0.3.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.3.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64（x86_64） | `git-rg_v0.3.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.3.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64（x86_64） | `git-rg_v0.3.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.3.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64（x86_64） | `git-rg_v0.4.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.4.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64（x86_64） | `git-rg_v0.4.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.4.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64（x86_64） | `git-rg_v0.4.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.4.0_windows_arm64.zip` | Tier 1 |
 
-每个 archive 包含一个顶层版本目录和一个可执行文件。v0.3.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
+每个 archive 包含一个顶层版本目录和一个可执行文件。v0.4.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
 
 ### GitHub Release（手工下载）
 
-从 [v0.3.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.3.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
+从 [v0.4.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.4.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
 
 ```sh
-version=v0.3.0
+version=v0.4.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -130,7 +130,7 @@ macOS 如果没有 `sha256sum`，可改用 `shasum -a 256`；按机器选择 `da
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.3.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.4.0 --bin-dir "$HOME/.local/bin"
 ```
 
 使用 `--version VERSION` 固定版本；省略时使用 latest。使用 `--bin-dir DIRECTORY` 指定安装目录。需要可审阅的安装过程时，先下载并检查脚本，再执行它。完整参数和失败处置见 [docs/installation.md](docs/installation.md)。
@@ -142,7 +142,7 @@ curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.3.0
+& $installer -Version v0.4.0
 git-rg --version
 ```
 
@@ -179,7 +179,7 @@ scoop uninstall git-rg
 
 ```sh
 # 固定到当前支持版本。
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.3.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.4.0
 
 # 或跟随最新模块版本。
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -273,7 +273,7 @@ git-rg refs [FLAGS] REPOSITORY
 
 `refs` 使用 provider 的 branch 和 tag API，并完整分页。结果会校验、去重、稳定排序；因为 ref 会变化，所以不写入磁盘缓存：
 
-v0.3.0 的接口是 `refs` 子命令（list-refs 操作），没有 `--list-refs` flag。
+列出引用使用 `refs` 子命令（list-refs 操作），没有 `--list-refs` flag。
 
 ```sh
 git-rg refs github:OWNER/REPO
@@ -281,7 +281,7 @@ git-rg refs --kind branch gitlab:GROUP/PROJECT
 git-rg refs --kind tag gitlab:GROUP/PROJECT
 ```
 
-参数为 `--kind all|branch|tag`、`--format ndjson|text`、`--max-requests NUM`、`--provider github|gitlab`、`--api-base URL` 和 `--timeout DURATION`。完整列表每页最多 100 项。后续页失败时返回 error，不会把部分列表标为完整。
+参数为 `--kind all|branch|tag`、`--format ndjson|text`、`--max-requests NUM`、`--provider github|gitlab`、`--api-base URL`、`--auth auto|env` 和 `--timeout DURATION`。完整列表每页最多 100 项。后续页失败时返回 error，不会把部分列表标为完整。
 
 NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 
@@ -316,6 +316,7 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 | `--max-requests NUM` | `100` | 远端请求预算，包含重试和重定向；`0` 表示不限制。 |
 | `--provider NAME` | 自动判断 | `github` 或 `gitlab`；私有/自建 host 必须指定。 |
 | `--api-base URL` | 自动判断 | 覆盖 provider API 基址。 |
+| `--auth MODE` | `auto` | 先使用环境变量，再复用目标站点的 `gh`/`glab` 登录；`env` 禁用 CLI 凭证读取。 |
 | `--no-cache` | 关闭 | 禁用本次运行的持久化磁盘缓存读写和清理。 |
 | `--timeout DURATION` | `5m` | 整个命令的截止时间，例如 `30s` 或 `2m`。 |
 | `--version` | — | 输出版本并返回 `0`；不需要 pattern 或 repository。 |
@@ -368,7 +369,30 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 <a id="permissions--credential-best-practices"></a>
 ## Permissions & credential best practices / 权限与凭证最佳实践
 
-`git-rg` 只在 provider 要求的请求头中发送凭证。请使用能够读取目标仓库及其元数据的最小只读身份。
+`git-rg` 在 `Authorization: Bearer` 请求头中发送凭证。请使用能够读取目标仓库及其元数据的最小只读身份。
+
+### 自动复用 CLI 凭证
+
+从 v0.4.0 开始，搜索和 `refs` 都默认使用 `--auth auto`。相比之前仅从环境变量读取凭证的行为，已有 CLI 登录现在可以直接用于认证，无需导出 token：
+
+```sh
+# 如尚未登录，先通过对应 CLI 登录一次。
+gh auth login --hostname github.com
+git-rg TODO github:OWNER/REPO
+
+glab auth login --hostname gitlab.example.com
+git-rg refs --provider gitlab https://gitlab.example.com/GROUP/PROJECT.git
+
+# 保持原来的环境变量模式，也适用于 CI。
+git-rg --auth env TODO github:OWNER/REPO
+git-rg refs --auth env github:OWNER/REPO
+```
+
+非空环境变量 token 始终优先，读取顺序保持如下表所示。没有环境变量凭证时，调用 `gh auth token --hostname HOST`；GitLab 则先检查 `glab auth status --hostname HOST`，成功后使用 `glab auth git-credential get`。采用该站点当前账号，access token 只保留在内存中。复用凭证会继承原有权限。支持 GitLab PAT 和 OAuth，不支持 helper 返回的 CI job token。glab 的隐藏 helper 必须存在，且对应版本的凭证库和 OAuth 刷新功能可用；不兼容时会提示 warning。gitrg 不解析凭证文件，也不自行刷新 token；glab 在读取时可能刷新并保存它自己的 OAuth 凭证。
+
+自动读取要求仓库和 API 都使用 HTTPS，且 origin 对应，包括 GitHub 的 `github.com` → `api.github.com` 映射。支持自建实例和同 origin 的自定义 API 路径；API host 或端口不匹配时跳过并提示，请通过 `GITRG_TOKEN` 显式提供凭证。helper 在临时目录运行，不经过 shell，不连接交互 stdin，并禁用凭证/站点环境覆盖和 CI 自动登录；保留用户配置目录、代理设置和系统凭证库。系统凭证库访问仍可能要求操作系统授权。
+
+CLI 未安装时静默匿名访问。未登录、读取失败、超时或输出异常时，发出一次 `auth_unavailable` warning 后匿名继续。warning 写入 stderr；NDJSON 同时输出 `warning` event，可能位于 `meta` 之前。API 认证失败后不会切换身份或匿名重试。整个 helper 阶段最多 10 秒，并计入 `--timeout`；总超时或用户取消时终止命令。每次 helper 调用的 stdout/stderr 合计限制为 64 KiB，不转发原始输出。`--max-requests` 只统计 gitrg 自身的 API 请求，不包含 glab 的状态检查或 OAuth 刷新请求。
 
 ### GitHub
 
@@ -382,14 +406,14 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 
 ### Token 读取顺序与处理
 
-读取顺序是固定且有意收窄的：
+两种认证模式都先按以下顺序读取环境变量：
 
 | 目标 | 环境变量顺序 |
 | --- | --- |
 | 任一 provider，包括自建实例 | 总是先检查 `GITRG_TOKEN`；非空时它优先。 |
 | `github.com` | 在 `GITRG_TOKEN` 之后读取 `GITHUB_TOKEN`，再读取 `GH_TOKEN`。这两个云端变量不会用于自建 GitHub。 |
 | `gitlab.com` | 在 `GITRG_TOKEN` 之后读取 `GITLAB_TOKEN`。该云端变量不会用于自建 GitLab。 |
-| 自建 host | 使用 `GITRG_TOKEN`；没有按 host 区分的后备变量。 |
+| 自建 host | 使用 `GITRG_TOKEN`；没有其他后备环境变量。`auto` 随后尝试对应 CLI 登录。 |
 
 没有 token CLI 参数。仓库 URL 和 `--api-base` 会拒绝内嵌凭证，所以不要把 token 放进 URL。未设置 token 时公开 endpoint 仍可能可访问；最终由 provider 决定权限。环境变量是普通的进程输入，不要承诺同一用户的其他进程或诊断工具无法观察它。
 

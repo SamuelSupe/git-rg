@@ -1,6 +1,6 @@
 # git-rg 安装、升级与卸载
 
-本文说明如何安装 git-rg v0.3.0、校验下载内容、升级到固定版本以及卸载。git-rg 的运行时不需要 Git 或 Go；只有从源码构建和 go install 需要 Go 1.26 或更高版本。
+本文说明如何安装 git-rg v0.4.0、校验下载内容、升级到固定版本以及卸载。git-rg 的运行时不需要 Git 或 Go；只有从源码构建和 go install 需要 Go 1.26 或更高版本。默认认证可复用已有 gh/glab 登录；这两个 CLI 是可选的，使用环境变量 token 或匿名访问不需要安装它们。
 
 ## 选择安装方式
 
@@ -10,10 +10,10 @@
 | Windows 用户目录 | install.ps1 | 支持 amd64/arm64，可选择是否修改用户 PATH |
 | Homebrew 用户 | brew install SamuelSupe/tap/git-rg | macOS 和 Linux |
 | Scoop 用户 | scoop install git-rg | Windows |
-| 已有 Go 1.26+ | go install ...@v0.3.0 | 从源码模块安装 |
+| 已有 Go 1.26+ | go install ...@v0.4.0 | 从源码模块安装 |
 | 需要审计安装过程 | 手工下载 Release | 先下载并检查 checksums.txt |
 
-预构建版本只承诺 SUPPORT.md 中的六个 Tier 1 组合。v0.3.0 Release 共包含 9 个资产：6 个平台 archive、install.sh、install.ps1 和 checksums.txt。安装器在 Release 缺少目标 archive、checksums.txt 或匹配校验值时会拒绝安装，不会把未知内容写入目标目录。
+预构建版本只承诺 SUPPORT.md 中的六个 Tier 1 组合。v0.4.0 Release 共包含 9 个资产：6 个平台 archive、install.sh、install.ps1 和 checksums.txt。安装器在 Release 缺少目标 archive、checksums.txt 或匹配校验值时会拒绝安装，不会把未知内容写入目标目录。
 
 ## Linux/macOS：安装脚本
 
@@ -21,12 +21,12 @@
 
 ~~~sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.3.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.4.0 --bin-dir "$HOME/.local/bin"
 ~~~
 
 参数：
 
-- --version VERSION：安装指定 Release，例如 v0.3.0；省略时使用最新稳定 Release。
+- --version VERSION：安装指定 Release，例如 v0.4.0；省略时使用最新稳定 Release。
 - --bin-dir DIR：安装目录；省略时为 $HOME/.local/bin。目录会被创建，已有同名二进制会在校验通过并下载完成后替换。
 - --help：显示参数说明。
 
@@ -35,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
 ~~~sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh -o /tmp/git-rg-install.sh
 less /tmp/git-rg-install.sh
-sh /tmp/git-rg-install.sh --version v0.3.0 --bin-dir "$HOME/.local/bin"
+sh /tmp/git-rg-install.sh --version v0.4.0 --bin-dir "$HOME/.local/bin"
 ~~~
 
 验证安装：
@@ -60,7 +60,7 @@ export PATH="$HOME/.local/bin:$PATH"
 ~~~powershell
 $script = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $script
-& $script -Version v0.3.0
+& $script -Version v0.4.0
 ~~~
 
 参数：
@@ -81,7 +81,7 @@ git-rg --version
 
 ~~~powershell
 $dir = Join-Path $env:LOCALAPPDATA "Programs\git-rg\bin"
-& $script -Version v0.3.0 -InstallDir $dir -NoPathUpdate
+& $script -Version v0.4.0 -InstallDir $dir -NoPathUpdate
 & (Join-Path $dir "git-rg.exe") --version
 ~~~
 
@@ -129,7 +129,7 @@ Scoop manifest 为 amd64/arm64 分别声明 URL 和 SHA-256，并将解压后的
 需要 Go 1.26 或更高版本。固定版本安装：
 
 ~~~sh
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.3.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.4.0
 git-rg --version
 ~~~
 
@@ -152,11 +152,11 @@ go build -trimpath -o ./git-rg ./cmd/git-rg
 
 ## 手工下载与 checksum
 
-Release 页面：[v0.3.0](https://github.com/SamuelSupe/git-rg/releases/tag/v0.3.0)。Release 资产共 9 个，命名规则为：
+Release 页面：[v0.4.0](https://github.com/SamuelSupe/git-rg/releases/tag/v0.4.0)。Release 资产共 9 个，命名规则为：
 
 ~~~text
-git-rg_v0.3.0_{linux|darwin}_{amd64|arm64}.tar.gz
-git-rg_v0.3.0_windows_{amd64|arm64}.zip
+git-rg_v0.4.0_{linux|darwin}_{amd64|arm64}.tar.gz
+git-rg_v0.4.0_windows_{amd64|arm64}.zip
 install.sh
 install.ps1
 checksums.txt
@@ -167,7 +167,7 @@ checksums.txt
 Linux/macOS 示例（这里选择 Linux amd64；macOS 使用 shasum -a 256）：
 
 ~~~sh
-version=v0.3.0
+version=v0.4.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/$version"
 curl -fL -o "$asset" "$base/$asset"
@@ -181,7 +181,7 @@ install -m 0755 "git-rg_${version}_linux_amd64/git-rg" "$HOME/.local/bin/git-rg"
 Windows PowerShell 示例：
 
 ~~~powershell
-$Version = "v0.3.0"
+$Version = "v0.4.0"
 $Asset = "git-rg_" + $Version + "_windows_amd64.zip"
 $Base = "https://github.com/SamuelSupe/git-rg/releases/download/" + $Version
 Invoke-WebRequest -Uri "$Base/$Asset" -OutFile $Asset
@@ -203,7 +203,7 @@ $dir = "git-rg_" + $Version + "_windows_amd64"
 
 ~~~sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.3.0
+  | sh -s -- --version v0.4.0
 ~~~
 
 需要回到旧版本时显式指定已发布版本，例如 --version v0.1.0 或 -Version v0.1.0。旧版本仅保留下载，不再接受普通修复；详见 SUPPORT.md。

@@ -313,8 +313,8 @@ func TestGitLabResolveAndListTreePagination(t *testing.T) {
 	var requests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.URL.EscapedPath()+"?"+r.URL.RawQuery)
-		if got := r.Header.Get("PRIVATE-TOKEN"); got != "gitlab-secret" {
-			t.Errorf("PRIVATE-TOKEN = %q", got)
+		if got := r.Header.Get("Authorization"); got != "Bearer gitlab-secret" {
+			t.Errorf("Authorization = %q, want Bearer gitlab-secret", got)
 		}
 		switch {
 		case r.URL.EscapedPath() == "/projects/gitlab-org%2Fgitlab-test":

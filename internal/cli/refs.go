@@ -70,12 +70,12 @@ func (r *refsRenderer) emit(event refsEvent) error {
 		if err := r.json.Encode(event); err != nil {
 			return err
 		}
-		if event.Type == "error" {
+		if event.Type == "error" || event.Type == "warning" {
 			_, _ = fmt.Fprintf(r.err, "git-rg: %s: %s\n", event.Code, output.EscapeDiagnostic(event.Message))
 		}
 		return nil
 	}
-	if event.Type == "error" {
+	if event.Type == "error" || event.Type == "warning" {
 		_, err := fmt.Fprintf(r.err, "git-rg: %s: %s\n", event.Code, output.EscapeDiagnostic(event.Message))
 		return err
 	}
@@ -103,7 +103,7 @@ func runRefs(args []string, stdout, stderr io.Writer) int {
 		flags.PrintDefaults()
 		flags.SetOutput(io.Discard)
 	}
-	var kindValue, formatValue, providerValue, apiBase string
+	var kindValue, formatValue, providerValue, apiBase, authMode string
 	var maxRequests int
 	var timeout time.Duration
 	flags.StringVar(&kindValue, "kind", "all", "ref kind: all, branch, or tag")
@@ -111,6 +111,7 @@ func runRefs(args []string, stdout, stderr io.Writer) int {
 	flags.IntVar(&maxRequests, "max-requests", 100, "maximum remote HTTP requests including retries; 0 means unlimited")
 	flags.StringVar(&providerValue, "provider", "", "github or gitlab (required for private hosts)")
 	flags.StringVar(&apiBase, "api-base", "", "override the provider API base URL")
+	flags.StringVar(&authMode, "auth", "auto", "credential source: auto (environment, then gh/glab) or env")
 	flags.DurationVar(&timeout, "timeout", 5*time.Minute, "overall command timeout")
 
 	parseErr := flags.Parse(args)
@@ -138,6 +139,10 @@ func runRefs(args []string, stdout, stderr io.Writer) int {
 		emitError("invalid_format", fmt.Errorf("unsupported --format %q", formatValue))
 		return 2
 	}
+	if authMode != "auto" && authMode != "env" {
+		emitError("invalid_arguments", errors.New("--auth must be auto or env"))
+		return 2
+	}
 	if maxRequests < 0 || timeout <= 0 {
 		emitError("invalid_arguments", errors.New("--max-requests must be non-negative and --timeout must be positive"))
 		return 2
@@ -152,7 +157,22 @@ func runRefs(args []string, stdout, stderr io.Writer) int {
 		emitError("invalid_repository", err)
 		return 2
 	}
-	remote, err := provider.NewWithOptions(repository, provider.Options{Timeout: timeout, RequestLimit: maxRequests})
+	baseContext, stopSignal := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignal()
+	ctx, cancel := context.WithTimeout(baseContext, timeout)
+	defer cancel()
+	token, authWarning, err := provider.ResolveCredentials(ctx, repository, authMode)
+	if err != nil {
+		emitError("provider_init_failed", err)
+		return 2
+	}
+	if authWarning != "" {
+		if err := renderer.emit(refsEvent{Type: "warning", Code: "auth_unavailable", Message: authWarning}); err != nil {
+			fmt.Fprintf(stderr, "git-rg: write_output: %v\n", err)
+			return 2
+		}
+	}
+	remote, err := provider.NewWithOptions(repository, provider.Options{Token: token, Timeout: timeout, RequestLimit: maxRequests})
 	if err != nil {
 		emitError("provider_init_failed", err)
 		return 2
@@ -163,10 +183,6 @@ func runRefs(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	baseContext, stopSignal := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stopSignal()
-	ctx, cancel := context.WithTimeout(baseContext, timeout)
-	defer cancel()
 	refs, err := lister.ListRefs(ctx, repository, kind)
 	if err != nil {
 		emitError(refsProviderErrorCode(err), err)

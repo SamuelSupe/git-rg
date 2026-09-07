@@ -83,6 +83,7 @@ type RequestStats struct {
 }
 
 type Options struct {
+	Token        string
 	Timeout      time.Duration
 	RequestLimit int
 }

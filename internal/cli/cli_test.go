@@ -10,9 +10,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -59,6 +61,138 @@ func TestRunTextDiagnosticsStayOnStderr(t *testing.T) {
 	}
 	if got := stderr.String(); !strings.Contains(got, "git-rg: invalid_mode: unsupported --mode \"bogus\"") {
 		t.Fatalf("text stderr = %q, want invalid_mode diagnostic", got)
+	}
+}
+
+func TestRunAuthWarningIsConsistentForSearchAndRefs(t *testing.T) {
+	t.Setenv("GITRG_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	searchServer := newCommitInfoTestServer(t)
+	defer searchServer.Close()
+	var searchStdout, searchStderr bytes.Buffer
+	if status := Run([]string{"--api-base", searchServer.URL, "--no-cache", "--mode", "exact", "needle", "github:octocat/Hello-World"}, &searchStdout, &searchStderr); status != 0 {
+		t.Fatalf("search status = %d, stdout=%q stderr=%q", status, searchStdout.String(), searchStderr.String())
+	}
+	searchLines := strings.Split(strings.TrimSpace(searchStdout.String()), "\n")
+	if len(searchLines) < 2 {
+		t.Fatalf("search output = %q, want warning before meta", searchStdout.String())
+	}
+	var searchWarning search.Event
+	if err := json.Unmarshal([]byte(searchLines[0]), &searchWarning); err != nil {
+		t.Fatalf("search warning is not JSON: %v", err)
+	}
+	if searchWarning.Type != "warning" || searchWarning.Code != "auth_unavailable" {
+		t.Fatalf("search first event = %#v, want auth_unavailable warning", searchWarning)
+	}
+	if !strings.Contains(searchStderr.String(), "git-rg: auth_unavailable:") {
+		t.Fatalf("search stderr = %q, want auth_unavailable diagnostic", searchStderr.String())
+	}
+
+	refsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case "/repos/octocat/Hello-World/branches", "/repos/octocat/Hello-World/tags":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer refsServer.Close()
+	var refsStdout, refsStderr bytes.Buffer
+	if status := Run([]string{"refs", "--api-base", refsServer.URL, "github:octocat/Hello-World"}, &refsStdout, &refsStderr); status != 0 {
+		t.Fatalf("refs status = %d, stdout=%q stderr=%q", status, refsStdout.String(), refsStderr.String())
+	}
+	refsLines := strings.Split(strings.TrimSpace(refsStdout.String()), "\n")
+	if len(refsLines) < 2 {
+		t.Fatalf("refs output = %q, want warning before meta", refsStdout.String())
+	}
+	var refsWarning refsEvent
+	if err := json.Unmarshal([]byte(refsLines[0]), &refsWarning); err != nil {
+		t.Fatalf("refs warning is not JSON: %v", err)
+	}
+	if refsWarning.Type != "warning" || refsWarning.Code != "auth_unavailable" {
+		t.Fatalf("refs first event = %#v, want auth_unavailable warning", refsWarning)
+	}
+	if !strings.Contains(refsStderr.String(), "git-rg: auth_unavailable:") {
+		t.Fatalf("refs stderr = %q, want auth_unavailable diagnostic", refsStderr.String())
+	}
+}
+
+func TestRunAuthEnvSuppressesAutomaticWarningForSearchAndRefs(t *testing.T) {
+	t.Setenv("GITRG_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	searchServer := newCommitInfoTestServer(t)
+	defer searchServer.Close()
+	var searchStdout, searchStderr bytes.Buffer
+	if status := Run([]string{"--api-base", searchServer.URL, "--auth", "env", "--no-cache", "--mode", "exact", "needle", "github:octocat/Hello-World"}, &searchStdout, &searchStderr); status != 0 {
+		t.Fatalf("search status = %d, stdout=%q stderr=%q", status, searchStdout.String(), searchStderr.String())
+	}
+	if strings.Contains(searchStdout.String(), "auth_unavailable") || searchStderr.Len() != 0 {
+		t.Fatalf("search auth env output = stdout %q/stderr %q, want no auth warning", searchStdout.String(), searchStderr.String())
+	}
+
+	refsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case "/repos/octocat/Hello-World/branches", "/repos/octocat/Hello-World/tags":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer refsServer.Close()
+	var refsStdout, refsStderr bytes.Buffer
+	if status := Run([]string{"refs", "--api-base", refsServer.URL, "--auth", "env", "github:octocat/Hello-World"}, &refsStdout, &refsStderr); status != 0 {
+		t.Fatalf("refs status = %d, stdout=%q stderr=%q", status, refsStdout.String(), refsStderr.String())
+	}
+	if strings.Contains(refsStdout.String(), "auth_unavailable") || refsStderr.Len() != 0 {
+		t.Fatalf("refs auth env output = stdout %q/stderr %q, want no auth warning", refsStdout.String(), refsStderr.String())
+	}
+}
+
+func TestRunSearchPassesConfiguredTokenAndDoesNotRetryUnauthorized(t *testing.T) {
+	t.Setenv("GITRG_TOKEN", "known-test-token")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if got := r.Header.Get("Authorization"); got != "Bearer known-test-token" {
+			t.Errorf("Authorization = %q, want Bearer known-test-token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"message":"unauthorized"}`)
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	status := Run([]string{"--api-base", server.URL, "--auth", "env", "--no-cache", "needle", "github:octocat/Hello-World"}, &stdout, &stderr)
+	if status != 2 {
+		t.Fatalf("search status = %d, stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("unauthorized search requests = %d, want one request without anonymous retry", got)
+	}
+}
+
+func TestRunRefsPassesConfiguredTokenAndDoesNotRetryUnauthorized(t *testing.T) {
+	t.Setenv("GITRG_TOKEN", "known-test-token")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if got := r.Header.Get("Authorization"); got != "Bearer known-test-token" {
+			t.Errorf("Authorization = %q, want Bearer known-test-token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"message":"unauthorized"}`)
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	status := Run([]string{"refs", "--api-base", server.URL, "--auth", "env", "github:octocat/Hello-World"}, &stdout, &stderr)
+	if status != 2 {
+		t.Fatalf("refs status = %d, stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("unauthorized refs requests = %d, want one request without anonymous retry", got)
 	}
 }
 
@@ -127,7 +261,7 @@ func TestRunCommitInfoControlsNDJSONMeta(t *testing.T) {
 			server := newCommitInfoTestServer(t)
 			defer server.Close()
 
-			args := []string{"--api-base", server.URL, "--no-cache", "--mode", "exact"}
+			args := []string{"--api-base", server.URL, "--auth", "env", "--no-cache", "--mode", "exact"}
 			if tt.enabled {
 				args = append(args, "--commit-info")
 			}
@@ -175,7 +309,7 @@ func TestRunSummaryDurationIncludesResolveTime(t *testing.T) {
 	server := newCommitInfoTestServerWithDelay(t, delay)
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
-	args := []string{"--api-base", server.URL, "--no-cache", "--mode", "exact", "needle", "github:octocat/Hello-World"}
+	args := []string{"--api-base", server.URL, "--auth", "env", "--no-cache", "--mode", "exact", "needle", "github:octocat/Hello-World"}
 	if status := Run(args, &stdout, &stderr); status != 0 {
 		t.Fatalf("Run() status = %d, stdout=%q stderr=%q", status, stdout.String(), stderr.String())
 	}
@@ -206,7 +340,7 @@ func TestRunReturnsExitTwoOnNDJSONWriteFailure(t *testing.T) {
 	var stderr bytes.Buffer
 	writeErr := errors.New("output sink failed")
 	stdout := &cliFailingWriter{err: writeErr, failOnSummary: true}
-	args := []string{"--api-base", server.URL, "--no-cache", "--mode", "exact", "needle", "github:octocat/Hello-World"}
+	args := []string{"--api-base", server.URL, "--auth", "env", "--no-cache", "--mode", "exact", "needle", "github:octocat/Hello-World"}
 	if status := Run(args, stdout, &stderr); status != 2 {
 		t.Fatalf("Run() status = %d, want 2; stderr=%q", status, stderr.String())
 	}
@@ -223,7 +357,7 @@ func TestRunCommitInfoTextOutput(t *testing.T) {
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
 	args := []string{
-		"--api-base", server.URL,
+		"--api-base", server.URL, "--auth", "env",
 		"--no-cache",
 		"--mode", "exact",
 		"--format", "text",
@@ -367,7 +501,7 @@ func TestRunRefsDefaultNDJSONAssociatesHeads(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	status := Run([]string{"refs", "--api-base", server.URL, "github:octocat/Hello-World"}, &stdout, &stderr)
+	status := Run([]string{"refs", "--api-base", server.URL, "--auth", "env", "github:octocat/Hello-World"}, &stdout, &stderr)
 	if status != 0 {
 		t.Fatalf("Run(refs) status = %d, stdout=%q stderr=%q", status, stdout.String(), stderr.String())
 	}
@@ -435,7 +569,7 @@ func TestRunRefsKindOnlyRequestsSelectedEndpoint(t *testing.T) {
 			defer server.Close()
 
 			var stdout, stderr bytes.Buffer
-			args := []string{"refs", "--api-base", server.URL, "--kind", string(tt.kind), "github:octocat/Hello-World"}
+			args := []string{"refs", "--api-base", server.URL, "--auth", "env", "--kind", string(tt.kind), "github:octocat/Hello-World"}
 			if status := Run(args, &stdout, &stderr); status != 0 {
 				t.Fatalf("Run(refs) status = %d, stdout=%q stderr=%q", status, stdout.String(), stderr.String())
 			}
@@ -478,7 +612,7 @@ func TestRunRefsDoesNotEmitPartialRefsOnLaterPageFailure(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	status := Run([]string{"refs", "--api-base", server.URL, "--kind", "branch", "github:octocat/Hello-World"}, &stdout, &stderr)
+	status := Run([]string{"refs", "--api-base", server.URL, "--auth", "env", "--kind", "branch", "github:octocat/Hello-World"}, &stdout, &stderr)
 	if status != 2 {
 		t.Fatalf("Run(refs) status = %d, want 2; stdout=%q stderr=%q", status, stdout.String(), stderr.String())
 	}
@@ -507,7 +641,7 @@ func TestRunRefsInvalidKindDoesNotContactRemote(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	status := Run([]string{"refs", "--api-base", server.URL, "--kind", "unknown", "github:octocat/Hello-World"}, &stdout, &stderr)
+	status := Run([]string{"refs", "--api-base", server.URL, "--auth", "env", "--kind", "unknown", "github:octocat/Hello-World"}, &stdout, &stderr)
 	if status != 2 {
 		t.Fatalf("Run(refs) status = %d, want 2", status)
 	}
@@ -538,7 +672,7 @@ func TestRunRefsResourceLimitFailsBeforeOutput(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	status := Run([]string{"refs", "--api-base", server.URL, "--kind", "branch", "github:octocat/Hello-World"}, &stdout, &stderr)
+	status := Run([]string{"refs", "--api-base", server.URL, "--auth", "env", "--kind", "branch", "github:octocat/Hello-World"}, &stdout, &stderr)
 	if status != 2 {
 		t.Fatalf("Run(refs) status = %d, want 2; stdout=%q stderr=%q", status, stdout.String(), stderr.String())
 	}

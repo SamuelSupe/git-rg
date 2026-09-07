@@ -133,6 +133,7 @@ func benchmarkCLIQuery(b *testing.B, fixture cliBenchmarkFixture, server *cliBen
 func cliBenchmarkArgs(apiBase, mode string) []string {
 	return []string{
 		"--api-base", apiBase,
+		"--auth", "env",
 		"--mode", mode,
 		"--max-results", "0",
 		"--max-requests", "1000",

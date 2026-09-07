@@ -8,12 +8,11 @@ import (
 )
 
 func NewWithOptions(repository Repository, options Options) (Provider, error) {
-	token := tokenFor(repository)
 	switch repository.Provider {
 	case "github":
-		return newGitHubWithOptions(repository, token, options), nil
+		return newGitHubWithOptions(repository, options.Token, options), nil
 	case "gitlab":
-		return newGitLabWithOptions(repository, token, options), nil
+		return newGitLabWithOptions(repository, options.Token, options), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider %q", repository.Provider)
 	}
@@ -49,7 +48,7 @@ func setGitHubHeaders(token string) func(*http.Request) {
 func setGitLabHeaders(token string) func(*http.Request) {
 	return func(req *http.Request) {
 		if token != "" {
-			req.Header.Set("PRIVATE-TOKEN", token)
+			req.Header.Set("Authorization", "Bearer "+token)
 		}
 		req.Header.Set("User-Agent", "git-rg/1")
 	}
