@@ -12,8 +12,7 @@ import (
 )
 
 type gitLab struct {
-	repository Repository
-	client     *client
+	client *client
 }
 
 func newGitLab(repository Repository, token string, timeout time.Duration) *gitLab {
@@ -21,10 +20,8 @@ func newGitLab(repository Repository, token string, timeout time.Duration) *gitL
 }
 
 func newGitLabWithOptions(repository Repository, token string, options Options) *gitLab {
-	return &gitLab{repository: repository, client: newClient(options, setGitLabHeaders(token), token)}
+	return &gitLab{client: newClient(options, setGitLabHeaders(token), token)}
 }
-
-func (g *gitLab) Name() string { return "gitlab" }
 
 func (g *gitLab) RequestStats() RequestStats { return g.client.stats() }
 
@@ -143,7 +140,7 @@ func (g *gitLab) listRefs(ctx context.Context, endpoint string, kind RefKind, bu
 			return nil, err
 		}
 		for _, item := range response {
-			if err := checkContext(ctx); err != nil {
+			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 			if err := budget.add(item.Name, item.Commit.ID); err != nil {
@@ -193,7 +190,7 @@ func (g *gitLab) ListTree(ctx context.Context, snapshot Snapshot, requireComplet
 			return nil, false, err
 		}
 		for _, item := range response {
-			if err := checkContext(ctx); err != nil {
+			if err := ctx.Err(); err != nil {
 				return nil, false, err
 			}
 			if err := budget.add(item.Path, item.ID, item.Type, item.Mode); err != nil {
@@ -206,7 +203,7 @@ func (g *gitLab) ListTree(ctx context.Context, snapshot Snapshot, requireComplet
 		next := headers.Get("X-Next-Page")
 		if !requireComplete && (next != "" || len(response) == 100) {
 			sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-			if err := checkContext(ctx); err != nil {
+			if err := ctx.Err(); err != nil {
 				return nil, false, err
 			}
 			return entries, false, nil
@@ -223,7 +220,7 @@ func (g *gitLab) ListTree(ctx context.Context, snapshot Snapshot, requireComplet
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-	if err := checkContext(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
 	return entries, true, nil
@@ -280,7 +277,7 @@ func (g *gitLab) SearchCandidates(ctx context.Context, snapshot Snapshot, litera
 			return nil, err
 		}
 		for _, item := range response {
-			if err := checkContext(ctx); err != nil {
+			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 			if err := budget.add(item.Path); err != nil {

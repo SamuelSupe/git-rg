@@ -53,14 +53,23 @@ type Event struct {
 }
 
 func (e Event) MarshalJSON() ([]byte, error) {
+	return json.Marshal(e.jsonValue())
+}
+
+// EncodeJSON preserves MarshalJSON's fields without an intermediate JSON buffer.
+func (e Event) EncodeJSON(encoder *json.Encoder) error {
+	return encoder.Encode(e.jsonValue())
+}
+
+func (e Event) jsonValue() any {
 	type eventAlias Event
 	if e.Type != "match" && e.Type != "context" {
-		return json.Marshal(eventAlias(e))
+		return eventAlias(e)
 	}
-	return json.Marshal(struct {
+	return struct {
 		eventAlias
 		Text string `json:"text"`
-	}{eventAlias: eventAlias(e), Text: e.Text})
+	}{eventAlias: eventAlias(e), Text: e.Text}
 }
 
 type Summary struct {

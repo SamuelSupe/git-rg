@@ -11,22 +11,57 @@ import (
 )
 
 type Renderer struct {
-	format string
-	out    io.Writer
-	err    io.Writer
-	json   *json.Encoder
+	format  string
+	out     io.Writer
+	err     io.Writer
+	json    *json.Encoder
+	buffer  *bufferedWriter
+	matched bool
 }
 
 func New(format string, stdout, stderr io.Writer) *Renderer {
 	encoder := json.NewEncoder(stdout)
-	encoder.SetEscapeHTML(false)
 	return &Renderer{format: format, out: stdout, err: stderr, json: encoder}
+}
+
+// NewBuffered batches NDJSON writes and flushes pending output on a 100 ms timer.
+// The caller must Close the renderer to finish pending output and stop its timer.
+func NewBuffered(format string, stdout, stderr io.Writer) *Renderer {
+	if format != "ndjson" {
+		return New(format, stdout, stderr)
+	}
+	buffer := newBufferedWriter(stdout)
+	renderer := New(format, buffer, stderr)
+	renderer.buffer = buffer
+	return renderer
+}
+
+func (r *Renderer) Flush() error {
+	if r.buffer != nil {
+		return r.buffer.Flush()
+	}
+	return nil
+}
+
+func (r *Renderer) Close() error {
+	if r.buffer != nil {
+		return r.buffer.Close()
+	}
+	return nil
 }
 
 func (r *Renderer) Emit(event search.Event) error {
 	if r.format == "ndjson" {
-		if err := r.json.Encode(event); err != nil {
+		if err := event.EncodeJSON(r.json); err != nil {
 			return err
+		}
+		if event.Type != "match" && event.Type != "context" || event.Type == "match" && !r.matched {
+			if err := r.Flush(); err != nil {
+				return err
+			}
+		}
+		if event.Type == "match" {
+			r.matched = true
 		}
 		if event.Type == "warning" || event.Type == "error" {
 			_, _ = fmt.Fprintf(r.err, "git-rg: %s: %s\n", event.Code, EscapeDiagnostic(event.Message))

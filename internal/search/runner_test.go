@@ -5,11 +5,15 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -51,16 +55,503 @@ func TestRunnerExactScansInPathOrderAndSkipsBinary(t *testing.T) {
 		t.Fatalf("summary = %#v", summary)
 	}
 	var matches []string
+	matchText := make(map[string]string)
 	for _, event := range events {
 		if event.Type == "match" {
 			matches = append(matches, event.Path)
+			matchText[event.Path] = event.Text
 		}
 	}
 	if !reflect.DeepEqual(matches, []string{"a.txt", "z.txt"}) {
 		t.Fatalf("match paths = %v, want [a.txt z.txt]", matches)
 	}
-	if got := remote.openCount(); got != 0 || remote.archiveCount() != 1 || remote.listCount() != 0 {
-		t.Fatalf("OpenBlob/OpenArchive/ListTree calls = %d/%d/%d, want 0/1/0", got, remote.archiveCount(), remote.listCount())
+	if !reflect.DeepEqual(matchText, map[string]string{"a.txt": "needle in a", "z.txt": "needle in z"}) {
+		t.Fatalf("match text by path = %v, want file-specific lines", matchText)
+	}
+	if got := remote.openCount(); got != 0 || remote.archiveCount() != 1 || remote.listCount() != 1 || !reflect.DeepEqual(remote.listRequireCompleteCopy(), []bool{true}) {
+		t.Fatalf("OpenBlob/OpenArchive/ListTree calls = %d/%d/%d/%v, want 0/1/1/[true]", got, remote.archiveCount(), remote.listCount(), remote.listRequireCompleteCopy())
+	}
+}
+
+func TestRunnerExactSupplementsArchiveOmissionFromTreeBlob(t *testing.T) {
+	remote := &fakeProvider{
+		entries: []provider.Entry{
+			{Path: "a.txt", OID: "a", Mode: "100644"},
+			{Path: "missing.txt", OID: "missing", Mode: "100644"},
+		},
+		blobs: map[string][]byte{
+			"a":       []byte("needle archive\n"),
+			"missing": []byte("needle original\n"),
+		},
+		archiveData: makeTestArchive(t, testArchiveFile{
+			name: "owner-repo-commit/a.txt",
+			data: []byte("needle archive\n"),
+		}),
+	}
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	var matches []string
+	runner := &Runner{Provider: remote, Cache: cache.Disabled(), Matcher: matcher, Config: Config{Mode: ModeExact, Workers: 1}}
+	summary, err := runner.Run(context.Background(), testSnapshot(), func(event Event) error {
+		if event.Type == "match" {
+			matches = append(matches, event.Path)
+		}
+		return nil
+	})
+	if err != nil || !summary.Complete || summary.Transport != "archive" || summary.MatchedLines != 2 || summary.MatchedFiles != 2 {
+		t.Fatalf("summary/error = %#v/%v, want complete archive plus blob supplement", summary, err)
+	}
+	if !reflect.DeepEqual(matches, []string{"a.txt", "missing.txt"}) {
+		t.Fatalf("match paths = %v, want archive path followed by omitted tree path", matches)
+	}
+	if remote.archiveCount() != 1 || remote.openCount() != 1 || remote.listCount() != 1 {
+		t.Fatalf("Archive/Blob/ListTree calls = %d/%d/%d, want 1/1/1", remote.archiveCount(), remote.openCount(), remote.listCount())
+	}
+}
+
+func TestRunnerNarrowGlobUsesBlobBeforeArchiveOrIndex(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		mode Mode
+		hot  bool
+	}{
+		{name: "exact cold", mode: ModeExact},
+		{name: "auto cold", mode: ModeAuto},
+		{name: "exact blob cache", mode: ModeExact, hot: true},
+		{name: "auto blob cache", mode: ModeAuto, hot: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			selected := []byte("needle selected\n")
+			remote := &fakeProvider{
+				entries: []provider.Entry{
+					{Path: "selected.md", OID: "selected", Mode: "100644"},
+					{Path: "other.go", OID: "other", Mode: "100644", Size: 1},
+					{Path: "third.txt", OID: "third", Mode: "100644", Size: 1},
+				},
+				blobs: map[string][]byte{
+					"selected": selected,
+					"other":    []byte("other\n"),
+					"third":    []byte("third\n"),
+				},
+				candidates: []string{"selected.md"},
+			}
+			objectCache := cache.Disabled()
+			if tt.hot {
+				objectCache = newTestCache(t)
+				blobKey := cache.Key(testSnapshot().Repository.CacheNamespace(), "blob", testGitBlobOID(selected))
+				stored, _, err := objectCache.Put(blobKey, bytes.NewReader(selected))
+				if err != nil {
+					t.Fatalf("seed blob cache: %v", err)
+				}
+				stored.Close()
+			}
+			matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+			if err != nil {
+				t.Fatalf("NewMatcher() error = %v", err)
+			}
+			runner := &Runner{
+				Provider: remote,
+				Cache:    objectCache,
+				Matcher:  matcher,
+				Config:   Config{Mode: tt.mode, Workers: 1, Globs: []string{"*.md"}},
+			}
+			summary, err := runner.Run(context.Background(), testSnapshot(), func(Event) error { return nil })
+			if err != nil || !summary.Complete || summary.Transport != "blob" || summary.MatchedLines != 1 || summary.ScannedFiles != 1 {
+				t.Fatalf("summary/error = %#v/%v, want complete narrow blob scan", summary, err)
+			}
+			if remote.listCount() != 1 || !reflect.DeepEqual(remote.listRequireCompleteCopy(), []bool{true}) {
+				t.Fatalf("ListTree calls = %d/%v, want one complete tree request", remote.listCount(), remote.listRequireCompleteCopy())
+			}
+			if remote.archiveCount() != 0 || remote.searchCount() != 0 {
+				t.Fatalf("OpenArchive/SearchCandidates calls = %d/%d, want zero for narrow glob", remote.archiveCount(), remote.searchCount())
+			}
+			wantBlobCalls := 1
+			if tt.hot {
+				wantBlobCalls = 0
+				if summary.CacheHits != 1 {
+					t.Fatalf("CacheHits = %d, want one hot blob cache hit", summary.CacheHits)
+				}
+			} else if summary.CacheHits != 0 {
+				t.Fatalf("CacheHits = %d, want zero cold-cache hits", summary.CacheHits)
+			}
+			if remote.openCount() != wantBlobCalls {
+				t.Fatalf("OpenBlob calls = %d, want %d", remote.openCount(), wantBlobCalls)
+			}
+		})
+	}
+}
+
+func TestRunnerNarrowGlobConsumesCachedBlobsBeforeTransportLimits(t *testing.T) {
+	const normalEntrySize = int64(len("needle file 000\n"))
+	for _, tt := range []struct {
+		name          string
+		mode          Mode
+		selected      int
+		cached        int
+		missingIndex  int
+		entrySize     int64
+		stats         provider.RequestStats
+		wantOpenBlobs int
+	}{
+		{name: "exact nine all cached", mode: ModeExact, selected: 9, cached: 9, missingIndex: -1, entrySize: normalEntrySize},
+		{name: "auto nine all cached", mode: ModeAuto, selected: 9, cached: 9, missingIndex: -1, entrySize: normalEntrySize},
+		{name: "nine cached one missing in middle", mode: ModeExact, selected: 10, cached: 9, missingIndex: 4, entrySize: normalEntrySize, wantOpenBlobs: 1},
+		{name: "unknown size cached", mode: ModeExact, selected: 2, cached: 2, missingIndex: -1, entrySize: 0},
+		{name: "over eight mib cached", mode: ModeExact, selected: 1, cached: 1, missingIndex: -1, entrySize: 9 << 20},
+		{name: "request budget exhausted cached", mode: ModeExact, selected: 1, cached: 1, missingIndex: -1, entrySize: normalEntrySize, stats: provider.RequestStats{Requests: 1, RequestLimit: 1}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runner, remote, snapshot, _ := newCachedGlobRunner(t, 100, tt.selected, tt.cached, tt.missingIndex, tt.entrySize, tt.mode, tt.stats)
+			summary, err := runner.Run(context.Background(), snapshot, func(Event) error { return nil })
+			if err != nil || !summary.Complete || summary.MatchedLines != tt.selected || summary.MatchedFiles != tt.selected || summary.ScannedFiles != tt.selected {
+				t.Fatalf("summary/error = %#v/%v, want complete %d-file result", summary, err, tt.selected)
+			}
+			if remote.listCount() != 0 || remote.searchCount() != 0 || remote.archiveCount() != 0 || remote.openCount() != tt.wantOpenBlobs {
+				t.Fatalf("provider calls = list %d/search %d/archive %d/blob %d, want 0/0/0/%d", remote.listCount(), remote.searchCount(), remote.archiveCount(), remote.openCount(), tt.wantOpenBlobs)
+			}
+			if summary.CacheHits != tt.cached+1 {
+				t.Fatalf("CacheHits = %d, want tree plus %d cached blobs", summary.CacheHits, tt.cached)
+			}
+			if summary.Transport != "blob" {
+				t.Fatalf("Transport = %q, want blob", summary.Transport)
+			}
+		})
+	}
+}
+
+func TestRunnerNarrowGlobCorruptCachedBlobWarnsAndFallsBack(t *testing.T) {
+	runner, remote, snapshot, root := newCachedGlobRunner(t, 100, 9, 9, -1, int64(len("needle file\n")), ModeExact, provider.RequestStats{})
+	corruptCachedPayload(t, root, []byte(fmt.Sprintf("needle file %03d", 7)))
+	var warnings []Event
+	summary, err := runner.Run(context.Background(), snapshot, func(event Event) error {
+		if event.Type == "warning" {
+			warnings = append(warnings, event)
+		}
+		return nil
+	})
+	if err != nil || !summary.Complete || summary.MatchedLines != 9 || summary.MatchedFiles != 9 || summary.ScannedFiles != 9 {
+		t.Fatalf("summary/error = %#v/%v, want complete nine-file result", summary, err)
+	}
+	if !hasEventCode(warnings, "cache_read_failed") {
+		t.Fatalf("warnings = %#v, want cache_read_failed for corrupted blob", warnings)
+	}
+	if remote.openCount() != 1 || remote.archiveCount() != 0 || remote.searchCount() != 0 || remote.listCount() != 0 {
+		t.Fatalf("provider calls = list %d/search %d/archive %d/blob %d paths=%v, want 0/0/0/1", remote.listCount(), remote.searchCount(), remote.archiveCount(), remote.openCount(), remote.blobPathsCopy())
+	}
+	if summary.CacheHits != 9 || summary.Transport != "blob" {
+		t.Fatalf("CacheHits/Transport = %d/%q, want tree plus eight valid blob hits and blob", summary.CacheHits, summary.Transport)
+	}
+}
+
+func TestRunnerNarrowGlobCachedPrefixHonorsResultLimit(t *testing.T) {
+	runner, remote, snapshot, _ := newCachedGlobRunner(t, 100, 9, 1, -1, int64(len("needle file\n")), ModeExact, provider.RequestStats{})
+	runner.Config.MaxResults = 1
+	summary, err := runner.Run(context.Background(), snapshot, func(Event) error { return nil })
+	if err != nil || summary.Complete || !summary.Truncated || summary.Reason != "result_limit" || summary.MatchedLines != 1 || summary.MatchedFiles != 1 {
+		t.Fatalf("summary/error = %#v/%v, want cached prefix result-limit stop", summary, err)
+	}
+	if remote.openCount() != 0 || remote.archiveCount() != 0 || remote.searchCount() != 0 || remote.listCount() != 0 {
+		t.Fatalf("provider calls = list %d/search %d/archive %d/blob %d, want no requests after cached prefix", remote.listCount(), remote.searchCount(), remote.archiveCount(), remote.openCount())
+	}
+	if summary.CacheHits != 2 || summary.Transport != "blob" {
+		t.Fatalf("CacheHits/Transport = %d/%q, want tree plus first blob and blob", summary.CacheHits, summary.Transport)
+	}
+}
+
+func TestRunnerNarrowGlobArchiveCompletesAfterCacheMissCutoff(t *testing.T) {
+	const selectedFiles = 20
+	runner, remote, snapshot, _ := newCachedGlobRunner(t, 100, selectedFiles, 1, -1, int64(len("needle file 000\n")), ModeExact, provider.RequestStats{})
+	runner.Config.Globs = []string{"pkg/file-0[01]?.txt"}
+	remote.archiveErr = nil
+	var matches []string
+	summary, err := runner.Run(context.Background(), snapshot, func(event Event) error {
+		if event.Type == "match" {
+			matches = append(matches, event.Path)
+		}
+		return nil
+	})
+	if err != nil || !summary.Complete || summary.Transport != "archive" || summary.MatchedLines != selectedFiles || summary.MatchedFiles != selectedFiles || summary.ScannedFiles != selectedFiles {
+		t.Fatalf("summary/error = %#v/%v, want complete archive result for %d selected files", summary, err, selectedFiles)
+	}
+	if summary.CacheHits != 2 || remote.listCount() != 0 || remote.searchCount() != 0 || remote.archiveCount() != 1 || remote.openCount() != 0 {
+		t.Fatalf("cache/provider counts = cache %d, list %d/search %d/archive %d/blob %d; want 2/0/0/1/0", summary.CacheHits, remote.listCount(), remote.searchCount(), remote.archiveCount(), remote.openCount())
+	}
+	want := make([]string, selectedFiles)
+	counts := make(map[string]int, selectedFiles)
+	for i := range want {
+		want[i] = fmt.Sprintf("pkg/file-%03d.txt", i)
+	}
+	for _, path := range matches {
+		counts[path]++
+	}
+	sort.Strings(matches)
+	if !reflect.DeepEqual(matches, want) {
+		t.Fatalf("match paths = %v, want each selected path once in %v", matches, want)
+	}
+	for _, path := range want {
+		if counts[path] != 1 {
+			t.Fatalf("match count for %q = %d, want one", path, counts[path])
+		}
+	}
+}
+
+func newCachedGlobRunner(t *testing.T, totalFiles, selectedFiles, cachedFiles, missingIndex int, entrySize int64, mode Mode, stats provider.RequestStats) (*Runner, *fakeProvider, provider.Snapshot, string) {
+	t.Helper()
+	objectCache := newTestCache(t)
+	root := os.Getenv("XDG_CACHE_HOME")
+	if root == "" {
+		t.Fatal("XDG_CACHE_HOME is empty after newTestCache")
+	}
+	snapshot := testSnapshot()
+	entries := make([]provider.Entry, totalFiles)
+	blobs := make(map[string][]byte, totalFiles)
+	for i := range entries {
+		data := []byte(fmt.Sprintf("needle file %03d\n", i))
+		oid := testGitBlobOID(data)
+		entries[i] = provider.Entry{
+			Path: fmt.Sprintf("pkg/file-%03d.txt", i),
+			OID:  oid,
+			Mode: "100644",
+			Size: entrySize,
+		}
+		blobs[oid] = data
+	}
+	encoded, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshal cached tree: %v", err)
+	}
+	treeKey := cache.Key(snapshot.Repository.CacheNamespace(), "tree", snapshot.Commit)
+	stored, _, err := objectCache.Put(treeKey, bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatalf("seed tree cache: %v", err)
+	}
+	stored.Close()
+	seeded := 0
+	for i := 0; i < selectedFiles && seeded < cachedFiles; i++ {
+		if i == missingIndex {
+			continue
+		}
+		blobKey := cache.Key(snapshot.Repository.CacheNamespace(), "blob", entries[i].OID)
+		stored, _, err := objectCache.Put(blobKey, bytes.NewReader(blobs[entries[i].OID]))
+		if err != nil {
+			t.Fatalf("seed blob cache %q: %v", entries[i].Path, err)
+		}
+		stored.Close()
+		seeded++
+	}
+	remote := &fakeProvider{
+		entries:    entries,
+		blobs:      blobs,
+		archiveErr: errors.New("archive intentionally disabled"),
+		stats:      stats,
+	}
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	runner := &Runner{
+		Provider: remote,
+		Cache:    objectCache,
+		Matcher:  matcher,
+		Config: Config{
+			Mode:    mode,
+			Workers: 4,
+			Globs:   []string{cachedGlobPattern(selectedFiles)},
+		},
+	}
+	return runner, remote, snapshot, root
+}
+
+func cachedGlobPattern(selectedFiles int) string {
+	if selectedFiles == 1 {
+		return "pkg/file-000.txt"
+	}
+	return fmt.Sprintf("pkg/file-00[0-%d].txt", selectedFiles-1)
+}
+
+func corruptCachedPayload(t *testing.T, root string, marker []byte) {
+	t.Helper()
+	found := false
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if found || info.IsDir() || !strings.HasSuffix(info.Name(), ".entry") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		index := bytes.Index(data, marker)
+		if index < 0 {
+			return nil
+		}
+		data[index] ^= 0xff
+		if err := os.WriteFile(path, data, info.Mode().Perm()); err != nil {
+			return err
+		}
+		found = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk cache to corrupt %q: %v", marker, err)
+	}
+	if !found {
+		t.Fatalf("cache payload %q not found", marker)
+	}
+}
+
+func TestRunnerNarrowGlobBlobPrefetchFailureFallsBackToCachedArchive(t *testing.T) {
+	objectCache := newTestCache(t)
+	snapshot := testSnapshot()
+	data := []byte("needle selected\n")
+	archiveKey := cache.Key(snapshot.Repository.CacheNamespace(), "archive", snapshot.Commit)
+	stored, _, err := objectCache.Put(archiveKey, bytes.NewReader(makeTestArchive(t, testArchiveFile{
+		name: "owner-repo-commit/selected.md",
+		data: data,
+	})))
+	if err != nil {
+		t.Fatalf("seed archive cache: %v", err)
+	}
+	stored.Close()
+	remote := &fakeProvider{
+		entries: []provider.Entry{
+			{Path: "selected.md", OID: "selected", Mode: "100644", Size: int64(len(data))},
+			{Path: "other.go", OID: "other", Mode: "100644", Size: 1},
+		},
+		blobs:    map[string][]byte{"selected": data, "other": []byte("other\n")},
+		blobErrs: map[string]error{"selected.md": errors.New("blob endpoint unavailable")},
+	}
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	var warnings []Event
+	runner := &Runner{Provider: remote, Cache: objectCache, Matcher: matcher, Config: Config{Mode: ModeExact, Workers: 1, Globs: []string{"*.md"}}}
+	summary, err := runner.Run(context.Background(), snapshot, func(event Event) error {
+		if event.Type == "warning" {
+			warnings = append(warnings, event)
+		}
+		return nil
+	})
+	if err != nil || !summary.Complete || summary.Transport != "archive" || summary.MatchedLines != 1 || summary.ScannedFiles != 1 {
+		t.Fatalf("summary/error = %#v/%v, want complete cached archive fallback", summary, err)
+	}
+	if !hasEventCode(warnings, "blob_prefetch_failed") {
+		t.Fatalf("warnings = %#v, want blob_prefetch_failed", warnings)
+	}
+	if summary.CacheHits != 1 || remote.archiveCount() != 0 || remote.searchCount() != 0 || remote.openCount() != 1 {
+		t.Fatalf("cache/Archive/Search/Blob = %d/%d/%d/%d, want cached archive, no index, one failed blob", summary.CacheHits, remote.archiveCount(), remote.searchCount(), remote.openCount())
+	}
+}
+
+func TestRunnerExplicitFullGlobStillUsesArchive(t *testing.T) {
+	remote := &fakeProvider{
+		entries: []provider.Entry{
+			{Path: "a.txt", OID: "a", Mode: "100644", Size: int64(len("needle a\n"))},
+			{Path: "b.txt", OID: "b", Mode: "100644", Size: int64(len("needle b\n"))},
+		},
+		blobs: map[string][]byte{"a": []byte("needle a\n"), "b": []byte("needle b\n")},
+	}
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	runner := &Runner{Provider: remote, Cache: cache.Disabled(), Matcher: matcher, Config: Config{Mode: ModeExact, Workers: 1, Globs: []string{"**"}}}
+	summary, err := runner.Run(context.Background(), testSnapshot(), func(Event) error { return nil })
+	if err != nil || !summary.Complete || summary.Transport != "archive" || summary.MatchedLines != 2 {
+		t.Fatalf("summary/error = %#v/%v, want complete full archive scan", summary, err)
+	}
+	if remote.archiveCount() != 1 || remote.openCount() != 0 || remote.searchCount() != 0 {
+		t.Fatalf("Archive/Blob/Search calls = %d/%d/%d, want 1/0/0", remote.archiveCount(), remote.openCount(), remote.searchCount())
+	}
+}
+
+func TestRunnerNarrowGlobFallsBackToArchiveWhenBlobBudgetOrSizeIsUnsafe(t *testing.T) {
+	data := []byte("needle selected\n")
+	oversizedData := append([]byte("needle\n"), bytes.Repeat([]byte{'x'}, maxLineBytes)...)
+	for _, tt := range []struct {
+		name         string
+		data         []byte
+		entrySize    int64
+		stats        provider.RequestStats
+		requestLimit int
+		wantBlobs    int
+	}{
+		{name: "request budget", data: data, entrySize: int64(len(data)), stats: provider.RequestStats{Requests: 1, RequestLimit: 3}, requestLimit: 3},
+		{name: "oversized blob", data: oversizedData, entrySize: int64(len(oversizedData))},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			remote := &fakeProvider{
+				entries: []provider.Entry{
+					{Path: "selected.md", OID: "selected", Mode: "100644", Size: tt.entrySize},
+					{Path: "other.go", OID: "other", Mode: "100644", Size: 1},
+				},
+				blobs: map[string][]byte{"selected": tt.data, "other": []byte("other\n")},
+				stats: tt.stats,
+			}
+			matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+			if err != nil {
+				t.Fatalf("NewMatcher() error = %v", err)
+			}
+			runner := &Runner{Provider: remote, Cache: cache.Disabled(), Matcher: matcher, Config: Config{Mode: ModeExact, Workers: 1, Globs: []string{"*.md"}, RequestLimit: tt.requestLimit}}
+			summary, err := runner.Run(context.Background(), testSnapshot(), func(Event) error { return nil })
+			if err != nil || !summary.Complete || summary.Transport != "archive" || summary.MatchedLines != 1 {
+				t.Fatalf("summary/error = %#v/%v, want complete archive path", summary, err)
+			}
+			if remote.archiveCount() != 1 || remote.searchCount() != 0 || remote.openCount() != tt.wantBlobs {
+				t.Fatalf("Archive/Search/Blob calls = %d/%d/%d, want 1/0/%d", remote.archiveCount(), remote.searchCount(), remote.openCount(), tt.wantBlobs)
+			}
+		})
+	}
+}
+
+func TestRunnerExactRejectsArchiveContentTransformationAndScansOriginalBlob(t *testing.T) {
+	original := []byte("needle original\n")
+	transformed := []byte("needle replaced\n")
+	for _, tt := range []struct {
+		name      string
+		pattern   string
+		wantTexts []string
+		wantLines int
+	}{
+		{name: "original blob", pattern: "original", wantTexts: []string{"needle original"}, wantLines: 1},
+		{name: "archive-only transformation", pattern: "replaced", wantLines: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			remote := &fakeProvider{
+				entries: []provider.Entry{{Path: "README.md", OID: "original", Mode: "100644", Size: int64(len(original))}},
+				blobs:   map[string][]byte{"original": original},
+				archiveData: makeTestArchive(t, testArchiveFile{
+					name: "owner-repo-commit/README.md",
+					data: transformed,
+				}),
+			}
+			matcher, err := NewMatcher(MatcherConfig{Pattern: tt.pattern})
+			if err != nil {
+				t.Fatalf("NewMatcher() error = %v", err)
+			}
+			var texts []string
+			runner := &Runner{Provider: remote, Cache: cache.Disabled(), Matcher: matcher, Config: Config{Mode: ModeExact, Workers: 1}}
+			summary, err := runner.Run(context.Background(), testSnapshot(), func(event Event) error {
+				if event.Type == "match" {
+					texts = append(texts, event.Text)
+				}
+				return nil
+			})
+			if err != nil || !summary.Complete || summary.Transport != "archive" || summary.MatchedLines != tt.wantLines {
+				t.Fatalf("summary/error = %#v/%v, want complete original-blob result", summary, err)
+			}
+			if !reflect.DeepEqual(texts, tt.wantTexts) {
+				t.Fatalf("match texts = %v, want original blob content only", texts)
+			}
+			if remote.openCount() != 1 {
+				t.Fatalf("OpenBlob calls = %d, want one supplement after archive digest mismatch", remote.openCount())
+			}
+		})
 	}
 }
 
@@ -95,7 +586,7 @@ func TestRunnerLateNULDiscardsEarlierMatch(t *testing.T) {
 	}
 }
 
-func TestRunnerAutoWithoutLiteralSkipsIndexAndTreeManifest(t *testing.T) {
+func TestRunnerAutoWithoutLiteralSkipsIndexButRequiresCompleteTree(t *testing.T) {
 	remote := &fakeProvider{
 		entries: []provider.Entry{{Path: "a.txt", OID: "a"}},
 		blobs:   map[string][]byte{"a": []byte("needle\n")},
@@ -112,8 +603,8 @@ func TestRunnerAutoWithoutLiteralSkipsIndexAndTreeManifest(t *testing.T) {
 	if !summary.Complete || summary.Transport != "archive" || summary.MatchedLines != 1 {
 		t.Fatalf("summary = %#v, want complete archive scan", summary)
 	}
-	if remote.searchCount() != 0 || remote.listCount() != 0 || remote.archiveCount() != 1 {
-		t.Fatalf("Search/List/Archive calls = %d/%d/%d, want 0/0/1", remote.searchCount(), remote.listCount(), remote.archiveCount())
+	if remote.searchCount() != 0 || remote.listCount() != 1 || remote.archiveCount() != 1 || !reflect.DeepEqual(remote.listRequireCompleteCopy(), []bool{true}) {
+		t.Fatalf("Search/List/Archive calls = %d/%d/%d/%v, want 0/1/1/[true]", remote.searchCount(), remote.listCount(), remote.archiveCount(), remote.listRequireCompleteCopy())
 	}
 }
 
@@ -141,7 +632,7 @@ func TestRunnerAutoSkipsOptionalIndexBelowHeadroomBoundary(t *testing.T) {
 	}
 }
 
-func TestRunnerAutoPartialCandidateManifestStillCompletesArchiveScan(t *testing.T) {
+func TestRunnerAutoRejectsIncompleteTreeManifest(t *testing.T) {
 	remote := &fakeProvider{
 		entries:     []provider.Entry{{Path: "a.txt", OID: "a"}, {Path: "b.txt", OID: "b"}},
 		blobs:       map[string][]byte{"a": []byte("needle a\n"), "b": []byte("needle b\n")},
@@ -152,28 +643,13 @@ func TestRunnerAutoPartialCandidateManifestStillCompletesArchiveScan(t *testing.
 	if err != nil {
 		t.Fatalf("NewMatcher() error = %v", err)
 	}
-	var warnings []Event
 	runner := &Runner{Provider: remote, Cache: cache.Disabled(), Matcher: matcher, Config: Config{Mode: ModeAuto, Workers: 1}}
-	summary, err := runner.Run(context.Background(), testSnapshot(), func(event Event) error {
-		if event.Type == "warning" {
-			warnings = append(warnings, event)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
+	summary, err := runner.Run(context.Background(), testSnapshot(), func(Event) error { return nil })
+	if err == nil || ErrorCode(err) != "list_tree" || summary.Complete || summary.Reason != "tree_error" {
+		t.Fatalf("summary/error = %#v/%v, want incomplete tree error", summary, err)
 	}
-	if !summary.Complete || summary.MatchedLines != 2 || summary.Transport != "archive" {
-		t.Fatalf("summary = %#v, want complete archive result", summary)
-	}
-	if !reflect.DeepEqual(remote.listRequireCompleteCopy(), []bool{false}) {
-		t.Fatalf("ListTree requireComplete calls = %v, want [false]", remote.listRequireCompleteCopy())
-	}
-	if remote.openCount() != 1 || remote.archiveCount() != 1 {
-		t.Fatalf("OpenBlob/OpenArchive calls = %d/%d, want 1/1", remote.openCount(), remote.archiveCount())
-	}
-	if !hasEventCode(warnings, "candidate_manifest_partial") {
-		t.Fatalf("warnings = %#v, want candidate_manifest_partial", warnings)
+	if !reflect.DeepEqual(remote.listRequireCompleteCopy(), []bool{true}) || remote.archiveCount() != 0 || remote.openCount() != 0 {
+		t.Fatalf("ListTree/Archive/Blob calls = %v/%d/%d, want [true]/0/0", remote.listRequireCompleteCopy(), remote.archiveCount(), remote.openCount())
 	}
 }
 
@@ -440,7 +916,10 @@ func TestRunnerDeepCorruptCachedArchiveIsRemoved(t *testing.T) {
 		t.Fatalf("seed corrupt archive cache: %v", err)
 	}
 	stored.Close()
-	remote := &fakeProvider{}
+	remote := &fakeProvider{
+		entries: []provider.Entry{{Path: "a.txt", OID: "a", Mode: "100644"}},
+		blobs:   map[string][]byte{"a": []byte("needle\n")},
+	}
 	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
 	if err != nil {
 		t.Fatalf("NewMatcher() error = %v", err)
@@ -458,9 +937,10 @@ func TestRunnerDeepCorruptCachedArchiveIsRemoved(t *testing.T) {
 	}
 }
 
-func TestRunnerArchiveFallbackRejectsPartialCompleteManifest(t *testing.T) {
+func TestRunnerExactRejectsIncompleteTreeManifest(t *testing.T) {
 	remote := &fakeProvider{
 		entries:     []provider.Entry{{Path: "a.txt", OID: "a"}},
+		blobs:       map[string][]byte{"a": []byte("needle\n")},
 		archiveErr:  errors.New("archive endpoint unavailable"),
 		treePartial: true,
 	}
@@ -473,8 +953,8 @@ func TestRunnerArchiveFallbackRejectsPartialCompleteManifest(t *testing.T) {
 	if err == nil || ErrorCode(err) != "list_tree" || summary.Complete || summary.Reason != "tree_error" {
 		t.Fatalf("summary/error = %#v/%v, want list_tree tree_error", summary, err)
 	}
-	if remote.archiveCount() != 1 || remote.openCount() != 0 || !reflect.DeepEqual(remote.listRequireCompleteCopy(), []bool{true}) {
-		t.Fatalf("Archive/Blob/ListTree calls = %d/%d/%v, want 1/0/[true]", remote.archiveCount(), remote.openCount(), remote.listRequireCompleteCopy())
+	if remote.archiveCount() != 0 || remote.openCount() != 0 || !reflect.DeepEqual(remote.listRequireCompleteCopy(), []bool{true}) {
+		t.Fatalf("Archive/Blob/ListTree calls = %d/%d/%v, want 0/0/[true]", remote.archiveCount(), remote.openCount(), remote.listRequireCompleteCopy())
 	}
 }
 
@@ -502,7 +982,17 @@ func TestRunnerArchiveRejectsUnsafeOutOfOrderAndDuplicatePaths(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			remote := &fakeProvider{archiveData: makeTestArchive(t, tt.files...)}
+			remote := &fakeProvider{
+				entries: []provider.Entry{
+					{Path: "a.txt", OID: "a", Mode: "100644"},
+					{Path: "z.txt", OID: "z", Mode: "100644"},
+				},
+				blobs: map[string][]byte{
+					"a": []byte("needle a\n"),
+					"z": []byte("needle z\n"),
+				},
+				archiveData: makeTestArchive(t, tt.files...),
+			}
 			matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
 			if err != nil {
 				t.Fatalf("NewMatcher() error = %v", err)
@@ -689,6 +1179,76 @@ func TestRunnerUnlimitedMatchesSpoolAndCleanTemporaryEvents(t *testing.T) {
 	}
 }
 
+func TestScanReaderSmallResultsStayInMemory(t *testing.T) {
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	runner := &Runner{Matcher: matcher, Config: Config{Workers: 1}}
+	outcome := runner.scanReader(context.Background(), "small.txt", strings.NewReader("needle\n"), false, 0)
+	defer cleanupOutcome(outcome)
+	if outcome.err != nil || outcome.spoolPath != "" || len(outcome.result.Events) != 1 {
+		t.Fatalf("small outcome = %#v, want in-memory event and no spool file", outcome)
+	}
+	if outcome.result.Events[0].Type != "match" || outcome.result.Events[0].Text != "needle" {
+		t.Fatalf("small events = %#v, want one match event", outcome.result.Events)
+	}
+}
+
+func TestScanReaderLargeResultsSpillAndCleanup(t *testing.T) {
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle", Before: 1, After: 1})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	data := bytes.Repeat([]byte("before\nneedle\nafter\n"), 400)
+	want, err := matcher.Scan("large.txt", bytes.NewReader(data), 0)
+	if err != nil {
+		t.Fatalf("Matcher.Scan() error = %v", err)
+	}
+	runner := &Runner{Matcher: matcher, Config: Config{Workers: 1}}
+	outcome := runner.scanReader(context.Background(), "large.txt", bytes.NewReader(data), false, 0)
+	spoolPath := outcome.spoolPath
+	if outcome.err != nil || spoolPath == "" || len(outcome.result.Events) != 0 {
+		cleanupOutcome(outcome)
+		t.Fatalf("large outcome = %#v, want disk spill without retained in-memory events", outcome)
+	}
+	if _, err := os.Stat(spoolPath); err != nil {
+		cleanupOutcome(outcome)
+		t.Fatalf("large spool stat error = %v, want existing spill file", err)
+	}
+	var got []Event
+	var summary Summary
+	_, err = runner.consumeOutcome(context.Background(), outcome, &summary, make(map[string]struct{}), func(event Event) error {
+		got = append(got, event)
+		return nil
+	}, "read_result_spool", "spool_error")
+	if err != nil {
+		t.Fatalf("consumeOutcome() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, want.Events) || summary.MatchedLines != want.Matches {
+		t.Fatalf("spilled events/summary = %#v/%#v, want %#v/%d", got, summary, want.Events, want.Matches)
+	}
+	if _, err := os.Stat(spoolPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("large spool after cleanup error = %v, want removed file", err)
+	}
+}
+
+func TestScanReaderLateNULAbortsSpilledResults(t *testing.T) {
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	data := []byte(strings.Repeat("needle\n", int(maxMemorySpoolBytes/512)+32))
+	data = append(data, bytes.Repeat([]byte{'x'}, binaryProbeSize)...)
+	data = append(data, 0, '\n')
+	runner := &Runner{Matcher: matcher, Config: Config{Workers: 1}}
+	outcome := runner.scanReader(context.Background(), "late-large.bin", bytes.NewReader(data), false, 0)
+	defer cleanupOutcome(outcome)
+	if outcome.err != nil || !outcome.skippedBinary || outcome.spoolPath != "" || len(outcome.result.Events) != 0 {
+		t.Fatalf("late binary outcome = %#v, want discarded spilled results", outcome)
+	}
+}
+
 func TestRunnerResultLimitTruncatesGlobalOutput(t *testing.T) {
 	remote := &fakeProvider{
 		entries: []provider.Entry{{Path: "a.txt", OID: "a"}, {Path: "b.txt", OID: "b"}},
@@ -727,18 +1287,109 @@ func TestRunnerReusesArchiveCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Run() error = %v", err)
 	}
-	if first.CacheHits != 0 || remote.listCount() != 0 || remote.openCount() != 0 || remote.archiveCount() != 1 {
+	if first.CacheHits != 0 || remote.listCount() != 1 || remote.openCount() != 0 || remote.archiveCount() != 1 {
 		t.Fatalf("first summary/calls = %#v/%d/%d/%d", first, remote.listCount(), remote.openCount(), remote.archiveCount())
+	}
+	if remote.listCount() != 1 || !reflect.DeepEqual(remote.listRequireCompleteCopy(), []bool{true}) {
+		t.Fatalf("first ListTree calls = %d/%v, want one complete tree request", remote.listCount(), remote.listRequireCompleteCopy())
 	}
 	second, err := runner.Run(context.Background(), testSnapshot(), func(Event) error { return nil })
 	if err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
-	if second.CacheHits != 1 || remote.listCount() != 0 || remote.openCount() != 0 || remote.archiveCount() != 1 {
-		t.Fatalf("second summary/calls = %#v/%d/%d/%d, want cache reuse", second, remote.listCount(), remote.openCount(), remote.archiveCount())
+	if second.CacheHits != 2 || remote.listCount() != 1 || remote.openCount() != 0 || remote.archiveCount() != 1 {
+		t.Fatalf("second summary/calls = %#v/%d/%d/%d, want tree+archive cache reuse", second, remote.listCount(), remote.openCount(), remote.archiveCount())
 	}
 	if second.Transport != "archive" {
 		t.Fatalf("second transport = %q, want archive", second.Transport)
+	}
+}
+
+func TestRunnerAutoHotArchiveCacheSkipsIndexAfterCompleteTreeCache(t *testing.T) {
+	objectCache := newTestCache(t)
+	remote := &fakeProvider{
+		entries: []provider.Entry{{Path: "a.txt", OID: "a"}, {Path: "b.txt", OID: "b"}},
+		blobs: map[string][]byte{
+			"a": []byte("needle a\n"),
+			"b": []byte("needle b\n"),
+		},
+		candidates: []string{"a.txt"},
+	}
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	runner := &Runner{Provider: remote, Cache: objectCache, Matcher: matcher, Config: Config{Mode: ModeAuto, Workers: 1}}
+	first, err := runner.Run(context.Background(), testSnapshot(), func(Event) error { return nil })
+	if err != nil || !first.Complete || first.MatchedLines != 2 {
+		t.Fatalf("first summary/error = %#v/%v, want complete auto scan", first, err)
+	}
+	if remote.searchCount() != 1 || remote.listCount() != 1 || remote.archiveCount() != 1 {
+		t.Fatalf("first Search/List/Archive calls = %d/%d/%d, want 1/1/1", remote.searchCount(), remote.listCount(), remote.archiveCount())
+	}
+	second, err := runner.Run(context.Background(), testSnapshot(), func(Event) error { return nil })
+	if err != nil || !second.Complete || second.MatchedLines != 2 {
+		t.Fatalf("second summary/error = %#v/%v, want complete hot-cache auto scan", second, err)
+	}
+	if second.CacheHits != 2 || remote.searchCount() != 1 || remote.listCount() != 1 || remote.archiveCount() != 1 {
+		t.Fatalf("second summary/calls = %#v/%d/%d/%d, want tree+archive cache and no index", second, remote.searchCount(), remote.listCount(), remote.archiveCount())
+	}
+}
+
+func TestRunnerCachedArchiveCancellationMarksSummaryIncompleteAndKeepsCache(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		cancelBefore bool
+	}{
+		{name: "cancel before run", cancelBefore: true},
+		{name: "cancel while emitting", cancelBefore: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			objectCache := newTestCache(t)
+			snapshot := testSnapshot()
+			archiveKey := cache.Key(snapshot.Repository.CacheNamespace(), "archive", snapshot.Commit)
+			stored, _, err := objectCache.Put(archiveKey, bytes.NewReader(makeTestArchive(t, testArchiveFile{
+				name: "owner-repo-commit/a.txt",
+				data: []byte("needle\n"),
+			})))
+			if err != nil {
+				t.Fatalf("seed archive cache error = %v", err)
+			}
+			stored.Close()
+			remote := &fakeProvider{
+				entries: []provider.Entry{{Path: "a.txt", OID: "a", Mode: "100644"}},
+				blobs:   map[string][]byte{"a": []byte("needle\n")},
+			}
+			matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+			if err != nil {
+				t.Fatalf("NewMatcher() error = %v", err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tt.cancelBefore {
+				cancel()
+			}
+			runner := &Runner{Provider: remote, Cache: objectCache, Matcher: matcher, Config: Config{Mode: ModeExact, Workers: 1}}
+			summary, err := runner.Run(ctx, snapshot, func(event Event) error {
+				if !tt.cancelBefore && event.Type == "match" {
+					cancel()
+				}
+				return nil
+			})
+			if err == nil || !errors.Is(err, context.Canceled) || summary.Complete || summary.Reason != "cancelled" {
+				t.Fatalf("summary/error = %#v/%v, want cancelled incomplete cached scan", summary, err)
+			}
+			if remote.archiveCount() != 0 {
+				t.Fatalf("OpenArchive calls = %d, want zero for cached archive", remote.archiveCount())
+			}
+			reader, hit, err := objectCache.Open(archiveKey)
+			if err != nil || !hit {
+				t.Fatalf("cached archive after cancellation = hit %v, error %v; want preserved cache", hit, err)
+			}
+			if err := reader.Close(); err != nil {
+				t.Fatalf("close cached archive after cancellation: %v", err)
+			}
+		})
 	}
 }
 
@@ -850,12 +1501,17 @@ func TestRunnerExactFallsBackForInvalidArchiveResponses(t *testing.T) {
 }
 
 func TestRunnerInvalidTreeCacheRefreshesFromProvider(t *testing.T) {
+	oid := testGitBlobOID([]byte("needle\n"))
+	validA := `{"path":"a.txt","oid":"` + oid + `","mode":"100644"}`
+	validB := `{"path":"b.txt","oid":"` + oid + `","mode":"100644"}`
 	tests := []struct {
 		name   string
 		cached []byte
 	}{
-		{name: "trailing JSON", cached: []byte(`[{"path":"a.txt","oid":"a","mode":"100644"}] {}`)},
-		{name: "unsafe path", cached: []byte(`[{"path":"../escape","oid":"a","mode":"100644"}]`)},
+		{name: "trailing JSON", cached: []byte(`[` + validA + `] {}`)},
+		{name: "unsafe unselected path", cached: []byte(`[` + validA + `,{"path":"../escape","oid":"` + oid + `","mode":"100644"}]`)},
+		{name: "duplicate unselected path", cached: []byte(`[` + validA + `,` + validB + `,` + validB + `]`)},
+		{name: "unordered unselected path", cached: []byte(`[` + validB + `,` + validA + `]`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -877,7 +1533,7 @@ func TestRunnerInvalidTreeCacheRefreshesFromProvider(t *testing.T) {
 				t.Fatalf("NewMatcher() error = %v", err)
 			}
 			var warnings []Event
-			runner := &Runner{Provider: remote, Cache: objectCache, Matcher: matcher, Config: Config{Mode: ModeExact, Workers: 1}}
+			runner := &Runner{Provider: remote, Cache: objectCache, Matcher: matcher, Config: Config{Mode: ModeExact, Workers: 1, Globs: []string{"a.txt"}}}
 			summary, err := runner.Run(context.Background(), snapshot, func(event Event) error {
 				if event.Type == "warning" {
 					warnings = append(warnings, event)
@@ -903,7 +1559,11 @@ func TestRunnerValidTreeCacheHitCountsInSummary(t *testing.T) {
 	objectCache := newTestCache(t)
 	snapshot := testSnapshot()
 	treeKey := cache.Key(snapshot.Repository.CacheNamespace(), "tree", snapshot.Commit)
-	stored, _, err := objectCache.Put(treeKey, bytes.NewReader([]byte(`[{"path":"a.txt","oid":"a","mode":"100644"}]`)))
+	encoded, err := json.Marshal([]provider.Entry{{Path: "a.txt", OID: testGitBlobOID([]byte("needle\n")), Mode: "100644"}})
+	if err != nil {
+		t.Fatalf("json.Marshal(tree) error = %v", err)
+	}
+	stored, _, err := objectCache.Put(treeKey, bytes.NewReader(encoded))
 	if err != nil {
 		t.Fatalf("seed tree cache: %v", err)
 	}
@@ -921,6 +1581,156 @@ func TestRunnerValidTreeCacheHitCountsInSummary(t *testing.T) {
 	summary, err := runner.Run(context.Background(), snapshot, func(Event) error { return nil })
 	if err != nil || !summary.Complete || summary.MatchedLines != 1 || summary.CacheHits != 1 || summary.Transport != "blob_fallback" || remote.listCount() != 0 {
 		t.Fatalf("summary/error/list calls = %#v/%v/%d, want one tree cache hit", summary, err, remote.listCount())
+	}
+}
+
+func TestRunnerLargeTreeManifestIsPersistedAndHotHitFiltersBeforeProvider(t *testing.T) {
+	const entryCount = 200_000
+	selectedData := []byte("needle selected\n")
+	selectedOID := testGitBlobOID(selectedData)
+	entries := make([]provider.Entry, entryCount)
+	for i := range entries {
+		entries[i] = provider.Entry{
+			Path: fmt.Sprintf("pkg/file-%06d.txt", i),
+			OID:  selectedOID,
+			Mode: "100644",
+			Size: int64(len(selectedData)),
+		}
+	}
+	targetPath := entries[0].Path
+	snapshot := testSnapshot()
+	objectCache := newTestCache(t)
+	blobKey := cache.Key(snapshot.Repository.CacheNamespace(), "blob", selectedOID)
+	stored, _, err := objectCache.Put(blobKey, bytes.NewReader(selectedData))
+	if err != nil {
+		t.Fatalf("seed selected blob cache: %v", err)
+	}
+	stored.Close()
+
+	coldProvider := &fakeProvider{
+		entries: entries,
+		blobs:   map[string][]byte{selectedOID: selectedData},
+	}
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	config := Config{Mode: ModeExact, Workers: 1, Globs: []string{targetPath}}
+	cold := &Runner{Provider: coldProvider, Cache: objectCache, Matcher: matcher, Config: config}
+	coldSummary, err := cold.Run(context.Background(), snapshot, func(Event) error { return nil })
+	if err != nil || !coldSummary.Complete || coldSummary.MatchedLines != 1 || coldSummary.MatchedFiles != 1 || coldSummary.ScannedFiles != 1 {
+		t.Fatalf("cold summary/error = %#v/%v, want one complete cached-blob match", coldSummary, err)
+	}
+	if coldProvider.listCount() != 1 || coldProvider.openCount() != 0 || coldSummary.CacheHits != 1 {
+		t.Fatalf("cold provider/cache = list %d, blob %d, cache hits %d; want 1/0/1", coldProvider.listCount(), coldProvider.openCount(), coldSummary.CacheHits)
+	}
+
+	treeKey := cache.Key(snapshot.Repository.CacheNamespace(), "tree", snapshot.Commit)
+	treeReader, hit, err := objectCache.Open(treeKey)
+	if err != nil || !hit {
+		t.Fatalf("persisted tree cache = hit %v, error %v; want hit", hit, err)
+	}
+	persisted, err := io.ReadAll(treeReader)
+	treeReader.Close()
+	if err != nil {
+		t.Fatalf("read persisted tree cache: %v", err)
+	}
+	if len(persisted) < 20<<20 || len(persisted) >= maxTreeManifestSize {
+		t.Fatalf("persisted tree JSON size = %d, want roughly 21 MiB and below %d", len(persisted), maxTreeManifestSize)
+	}
+
+	hotProvider := &fakeProvider{}
+	hot := &Runner{Provider: hotProvider, Cache: objectCache, Matcher: matcher, Config: config}
+	hotSummary, err := hot.Run(context.Background(), snapshot, func(Event) error { return nil })
+	if err != nil || !hotSummary.Complete || hotSummary.MatchedLines != 1 || hotSummary.MatchedFiles != 1 || hotSummary.ScannedFiles != 1 {
+		t.Fatalf("hot summary/error = %#v/%v, want one complete hot-cache match", hotSummary, err)
+	}
+	if hotSummary.CacheHits != 2 || hotProvider.listCount() != 0 || hotProvider.openCount() != 0 || hotProvider.archiveCount() != 0 || hotSummary.APIRequests != 0 {
+		t.Fatalf("hot provider/cache = %#v, want tree+blob hits and zero provider requests", hotSummary)
+	}
+}
+
+func TestRunnerEmptyTreeManifestRoundTripsThroughCache(t *testing.T) {
+	snapshot := testSnapshot()
+	objectCache := newTestCache(t)
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	config := Config{Mode: ModeExact, Workers: 1}
+	coldProvider := &fakeProvider{}
+	cold := &Runner{Provider: coldProvider, Cache: objectCache, Matcher: matcher, Config: config}
+	coldSummary, err := cold.Run(context.Background(), snapshot, func(Event) error { return nil })
+	if err != nil || !coldSummary.Complete || coldSummary.ScannedFiles != 0 || coldSummary.CacheHits != 0 {
+		t.Fatalf("cold summary/error = %#v/%v, want complete empty-tree scan", coldSummary, err)
+	}
+	if coldProvider.listCount() != 1 {
+		t.Fatalf("cold ListTree calls = %d, want one provider refresh", coldProvider.listCount())
+	}
+
+	hotProvider := &fakeProvider{}
+	hot := &Runner{Provider: hotProvider, Cache: objectCache, Matcher: matcher, Config: config}
+	hotSummary, err := hot.Run(context.Background(), snapshot, func(Event) error { return nil })
+	if err != nil || !hotSummary.Complete || hotSummary.ScannedFiles != 0 || hotSummary.CacheHits != 1 {
+		t.Fatalf("hot summary/error = %#v/%v, want complete empty-tree cache hit", hotSummary, err)
+	}
+	if hotProvider.listCount() != 0 {
+		t.Fatalf("hot ListTree calls = %d, want zero provider requests", hotProvider.listCount())
+	}
+}
+
+func TestRunnerEscapedTreePathsAboveManifestLimitAreNotCached(t *testing.T) {
+	const (
+		entryCount   = 30_000
+		escapedChars = 400
+	)
+	selectedData := []byte("needle selected\n")
+	selectedOID := testGitBlobOID(selectedData)
+	escaped := strings.Repeat("<", escapedChars)
+	entries := make([]provider.Entry, entryCount)
+	for i := range entries {
+		entries[i] = provider.Entry{
+			Path: fmt.Sprintf("pkg/%s-%06d.txt", escaped, i),
+			OID:  selectedOID,
+			Mode: "100644",
+			Size: int64(len(selectedData)),
+		}
+	}
+	encoded, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("json.Marshal(escaped tree) error = %v", err)
+	}
+	fits := treeManifestFitsCache(entries)
+	if len(encoded) <= maxTreeManifestSize || fits {
+		t.Fatalf("escaped tree JSON size = %d, fits = %v; want actual JSON above limit and rejected", len(encoded), fits)
+	}
+
+	snapshot := testSnapshot()
+	objectCache := newTestCache(t)
+	blobKey := cache.Key(snapshot.Repository.CacheNamespace(), "blob", selectedOID)
+	stored, _, err := objectCache.Put(blobKey, bytes.NewReader(selectedData))
+	if err != nil {
+		t.Fatalf("seed selected blob cache: %v", err)
+	}
+	stored.Close()
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	targetPath := entries[0].Path
+	remote := &fakeProvider{entries: entries, blobs: map[string][]byte{selectedOID: selectedData}}
+	runner := &Runner{Provider: remote, Cache: objectCache, Matcher: matcher, Config: Config{Mode: ModeExact, Workers: 1, Globs: []string{targetPath}}}
+	summary, err := runner.Run(context.Background(), snapshot, func(Event) error { return nil })
+	if err != nil || !summary.Complete || summary.MatchedLines != 1 || summary.ScannedFiles != 1 {
+		t.Fatalf("summary/error = %#v/%v, want complete cached-blob match", summary, err)
+	}
+	treeKey := cache.Key(snapshot.Repository.CacheNamespace(), "tree", snapshot.Commit)
+	reader, hit, err := objectCache.Open(treeKey)
+	if reader != nil {
+		reader.Close()
+	}
+	if err != nil || hit {
+		t.Fatalf("escaped tree cache = hit %v, error %v; want no persisted manifest", hit, err)
 	}
 }
 
@@ -1049,11 +1859,11 @@ func TestOversizedRepositoryPathsAreResourceLimited(t *testing.T) {
 	})
 
 	t.Run("cached tree manifest", func(t *testing.T) {
-		encoded, err := json.Marshal([]provider.Entry{{Path: longPath, OID: "oid", Mode: "100644"}})
+		encoded, err := json.Marshal([]provider.Entry{{Path: longPath, OID: testGitBlobOID([]byte("x")), Mode: "100644"}})
 		if err != nil {
 			t.Fatalf("json.Marshal() error = %v", err)
 		}
-		_, err = decodeTreeManifestContext(context.Background(), bytes.NewReader(encoded))
+		_, _, err = decodeTreeManifestContext(context.Background(), bytes.NewReader(encoded), nil)
 		assertResourceLimit(t, err)
 	})
 
@@ -1070,7 +1880,7 @@ func TestOversizedRepositoryPathsAreResourceLimited(t *testing.T) {
 func TestDecodeTreeManifestContextStopsOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := decodeTreeManifestContext(ctx, strings.NewReader(`[{"path":"a.txt","oid":"a","mode":"100644"}]`))
+	_, _, err := decodeTreeManifestContext(ctx, strings.NewReader(`[{"path":"a.txt","oid":"`+testGitBlobOID([]byte("needle\n"))+`","mode":"100644"}]`), nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("decodeTreeManifestContext() error = %v, want context.Canceled", err)
 	}
@@ -1101,13 +1911,16 @@ func TestScanArchiveCanceledDuringCachedGzipKeepsValidCache(t *testing.T) {
 		t.Fatalf("seed archive cache error = %v", err)
 	}
 	stored.Close()
-	globs, err := CompileGlobs(nil)
-	if err != nil {
-		t.Fatalf("CompileGlobs() error = %v", err)
+	archive, hit, err := objectCache.Open(archiveKey)
+	if err != nil || !hit {
+		t.Fatalf("open cached archive = hit %v, error %v", hit, err)
+	}
+	remaining := map[string]provider.Entry{
+		"a.txt": {Path: "a.txt", OID: testGitBlobOID([]byte("needle\n")), Mode: "100644"},
 	}
 	ctx := &cancelAfterErrContext{Context: context.Background(), remaining: 2}
 	var summary Summary
-	stopped, err := (&Runner{Cache: objectCache}).scanArchive(ctx, snapshot, globs, nil, &summary, make(map[string]struct{}), func(Event) error { return nil })
+	stopped, err := (&Runner{Cache: objectCache}).scanArchive(ctx, snapshot, remaining, archive, &summary, make(map[string]struct{}), func(Event) error { return nil })
 	if !stopped || !errors.Is(err, context.Canceled) {
 		t.Fatalf("scanArchive() stopped/error = %v/%v, want cancellation during cached gzip initialization", stopped, err)
 	}
@@ -1186,6 +1999,11 @@ func (f *fakeProvider) ListTree(_ context.Context, _ provider.Snapshot, requireC
 		if entries[i].Mode == "" {
 			entries[i].Mode = "100644"
 		}
+		if !isGitBlobOID(entries[i].OID) {
+			if data, ok := fakeBlobData(f.blobs, entries[i]); ok {
+				entries[i].OID = testGitBlobOID(data)
+			}
+		}
 	}
 	complete := !f.treePartial
 	err := f.treeErr
@@ -1206,19 +2024,16 @@ func (f *fakeProvider) OpenBlob(ctx context.Context, _ provider.Snapshot, entry 
 	started := f.blobStarted
 	completed := f.blobComplete
 	err, hasErr := f.blobErrs[entry.Path]
-	data, ok := f.blobs[entry.OID]
-	source := f.blobReaders[entry.Path]
-	if entry.OID == "" {
-		data, ok = f.blobs[entry.Path]
-		if !ok {
-			for _, manifestEntry := range f.entries {
-				if manifestEntry.Path == entry.Path {
-					data, ok = f.blobs[manifestEntry.OID]
-					break
-				}
+	data, ok := fakeBlobData(f.blobs, entry)
+	if !ok && entry.OID == "" {
+		for _, manifestEntry := range f.entries {
+			if manifestEntry.Path == entry.Path {
+				data, ok = fakeBlobData(f.blobs, manifestEntry)
+				break
 			}
 		}
 	}
+	source := f.blobReaders[entry.Path]
 	f.mu.Unlock()
 	defer func() {
 		f.mu.Lock()
@@ -1281,7 +2096,7 @@ func (f *fakeProvider) OpenArchive(context.Context, provider.Snapshot) (io.ReadC
 	gzipWriter := gzip.NewWriter(&compressed)
 	tarWriter := tar.NewWriter(gzipWriter)
 	for _, entry := range entries {
-		data, ok := blobs[entry.OID]
+		data, ok := fakeBlobData(blobs, entry)
 		if !ok {
 			return nil, errors.New("missing fake blob " + entry.OID)
 		}
@@ -1371,6 +2186,45 @@ func hasEventCode(events []Event, code string) bool {
 		}
 	}
 	return false
+}
+
+func testGitBlobOID(data []byte) string {
+	hash := sha1.New()
+	_, _ = fmt.Fprintf(hash, "blob %d\x00", len(data))
+	_, _ = hash.Write(data)
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func testGitBlobOID256(data []byte) string {
+	hash := sha256.New()
+	_, _ = fmt.Fprintf(hash, "blob %d\x00", len(data))
+	_, _ = hash.Write(data)
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func isGitBlobOID(value string) bool {
+	if len(value) != sha1.Size*2 && len(value) != 32*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func fakeBlobData(blobs map[string][]byte, entry provider.Entry) ([]byte, bool) {
+	if data, ok := blobs[entry.OID]; ok {
+		return data, true
+	}
+	if entry.OID == "" {
+		if data, ok := blobs[entry.Path]; ok {
+			return data, true
+		}
+	}
+	for _, data := range blobs {
+		if testGitBlobOID(data) == entry.OID || testGitBlobOID256(data) == entry.OID {
+			return data, true
+		}
+	}
+	return nil, false
 }
 
 type testArchiveFile struct {

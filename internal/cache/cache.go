@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,12 +13,17 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const DefaultMaxSize int64 = 512 << 20
 const staleTemporaryAge = 24 * time.Hour
-const checksumEncodedSize int64 = sha256.Size*2 + 1
+const pruneInterval = 5 * time.Minute
+const pruneMarker = ".last-prune"
+const entryMagic = "GITRG02\n"
+const entryHeaderSize int64 = int64(len(entryMagic)) + sha256.Size
 
 var ErrEntryTooLarge = errors.New("cache entry exceeds cache capacity")
 
@@ -25,6 +31,7 @@ type Cache struct {
 	root    string
 	enabled bool
 	maxSize int64
+	dirty   atomic.Bool
 }
 
 type Transaction struct {
@@ -35,6 +42,7 @@ type Transaction struct {
 	written     int64
 	maxSize     int64
 	finished    bool
+	cache       *Cache
 }
 
 func New(disabled bool) (*Cache, error) {
@@ -76,45 +84,44 @@ func (c *Cache) OpenContext(ctx context.Context, key string) (io.ReadCloser, boo
 	if !c.Enabled() {
 		return nil, false, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	file, err := os.Open(c.path(key))
 	if errors.Is(err, os.ErrNotExist) {
-		if removeErr := os.Remove(c.checksumPath(key)); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return nil, false, fmt.Errorf("remove orphan cache checksum: %w", removeErr)
-		}
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("open cache entry: %w", err)
 	}
-	expected, err := readChecksum(c.checksumPath(key))
-	if err != nil {
+	invalid := func(err error) (io.ReadCloser, bool, error) {
 		file.Close()
-		removeErr := c.Remove(key)
-		if removeErr != nil {
+		if removeErr := c.Remove(key); removeErr != nil {
 			return nil, false, fmt.Errorf("verify cache entry: %v; remove invalid entry: %w", err, removeErr)
 		}
 		return nil, false, fmt.Errorf("verify cache entry: %w", err)
+	}
+	var header [entryHeaderSize]byte
+	if _, err := io.ReadFull(file, header[:]); err != nil {
+		return invalid(err)
+	}
+	if string(header[:len(entryMagic)]) != entryMagic {
+		return invalid(errors.New("invalid cache format"))
 	}
 	actual := sha256.New()
 	if _, err := copyContext(ctx, actual, file); err != nil {
 		file.Close()
 		return nil, false, fmt.Errorf("verify cache entry: %w", err)
 	}
-	if !equalBytes(actual.Sum(nil), expected) {
-		file.Close()
-		removeErr := c.Remove(key)
-		if removeErr != nil {
-			return nil, false, fmt.Errorf("verify cache entry: checksum mismatch; remove invalid entry: %w", removeErr)
-		}
-		return nil, false, errors.New("verify cache entry: checksum mismatch")
+	if !bytes.Equal(actual.Sum(nil), header[len(entryMagic):]) {
+		return invalid(errors.New("checksum mismatch"))
 	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
+	if _, err := file.Seek(entryHeaderSize, io.SeekStart); err != nil {
 		file.Close()
 		return nil, false, fmt.Errorf("rewind cache entry: %w", err)
 	}
 	now := time.Now()
 	_ = os.Chtimes(file.Name(), now, now)
-	_ = os.Chtimes(c.checksumPath(key), now, now)
 	return file, true, nil
 }
 
@@ -176,13 +183,18 @@ func (c *Cache) Begin(key string) (*Transaction, error) {
 	if maxSize <= 0 {
 		maxSize = DefaultMaxSize
 	}
-	maxSize -= checksumEncodedSize
+	maxSize -= entryHeaderSize
 	if maxSize <= 0 {
 		temporary.Close()
 		os.Remove(temporary.Name())
 		return nil, errors.New("cache capacity is too small for an entry checksum")
 	}
-	return &Transaction{file: temporary, temporary: temporary.Name(), destination: destination, hash: sha256.New(), maxSize: maxSize}, nil
+	if _, err := temporary.Write(make([]byte, entryHeaderSize)); err != nil {
+		temporary.Close()
+		os.Remove(temporary.Name())
+		return nil, fmt.Errorf("reserve cache header: %w", err)
+	}
+	return &Transaction{file: temporary, temporary: temporary.Name(), destination: destination, hash: sha256.New(), maxSize: maxSize, cache: c}, nil
 }
 
 func (t *Transaction) Write(data []byte) (int, error) {
@@ -204,33 +216,22 @@ func (t *Transaction) Commit() error {
 	if t == nil || t.finished {
 		return errors.New("cache transaction is closed")
 	}
+	// The checksum and payload become visible together, including to other processes.
+	header := append([]byte(entryMagic), t.hash.Sum(nil)...)
+	if _, err := t.file.WriteAt(header, 0); err != nil {
+		return fmt.Errorf("write cache header: %w", err)
+	}
 	if err := t.file.Sync(); err != nil {
 		return fmt.Errorf("sync cache entry: %w", err)
 	}
 	if err := t.file.Close(); err != nil {
 		return fmt.Errorf("close cache entry: %w", err)
 	}
-	checksumTemporary := t.temporary + ".sha256"
-	if err := writeChecksum(checksumTemporary, t.hash.Sum(nil)); err != nil {
-		return err
-	}
 	if err := os.Rename(t.temporary, t.destination); err != nil {
-		if _, statErr := os.Stat(t.destination); statErr == nil {
-			os.Remove(t.temporary)
-			os.Remove(checksumTemporary)
-			t.finished = true
-			return nil
-		}
-		os.Remove(checksumTemporary)
 		return fmt.Errorf("publish cache entry: %w", err)
 	}
-	if err := os.Rename(checksumTemporary, t.destination+".sha256"); err != nil {
-		os.Remove(t.destination)
-		os.Remove(t.destination + ".sha256")
-		os.Remove(checksumTemporary)
-		return fmt.Errorf("publish cache checksum: %w", err)
-	}
 	t.finished = true
+	t.cache.dirty.Store(true)
 	return nil
 }
 
@@ -241,24 +242,43 @@ func (t *Transaction) Abort() {
 	t.finished = true
 	t.file.Close()
 	os.Remove(t.temporary)
-	os.Remove(t.temporary + ".sha256")
 }
 
 func (c *Cache) Remove(key string) error {
 	if !c.Enabled() {
 		return nil
 	}
-	var result error
-	for _, target := range []string{c.path(key), c.checksumPath(key)} {
-		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-			result = errors.Join(result, err)
-		}
+	if err := os.Remove(c.path(key)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	return result
+	return nil
 }
 
 func (c *Cache) Prune() error {
 	return c.PruneContext(context.Background())
+}
+
+// Successful writes trigger pruning at command completion. Read-only commands
+// share a timestamp so each new process need not enumerate the entire cache.
+func (c *Cache) PruneIfNeededContext(ctx context.Context) error {
+	if !c.Enabled() {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !c.dirty.Load() {
+		info, err := os.Stat(filepath.Join(c.root, pruneMarker))
+		if err == nil {
+			age := time.Since(info.ModTime())
+			if age >= 0 && age < pruneInterval {
+				return nil
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect cache prune timestamp: %w", err)
+		}
+	}
+	return c.PruneContext(ctx)
 }
 
 func (c *Cache) PruneContext(ctx context.Context) error {
@@ -269,7 +289,15 @@ func (c *Cache) PruneContext(ctx context.Context) error {
 		path    string
 		size    int64
 		modTime time.Time
+		legacy  bool
 	}
+	c.dirty.Store(false)
+	complete := false
+	defer func() {
+		if !complete {
+			c.dirty.Store(true)
+		}
+	}()
 	var total int64
 	entries := make([]entry, 0)
 	now := time.Now()
@@ -281,6 +309,9 @@ func (c *Cache) PruneContext(ctx context.Context) error {
 			return walkErr
 		}
 		if item.IsDir() {
+			return nil
+		}
+		if path == filepath.Join(c.root, pruneMarker) {
 			return nil
 		}
 		info, err := item.Info()
@@ -305,22 +336,24 @@ func (c *Cache) PruneContext(ctx context.Context) error {
 			return nil
 		}
 		size := info.Size()
-		if checksumInfo, err := os.Stat(path + ".sha256"); err == nil {
-			size += checksumInfo.Size()
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
+		legacy := !strings.HasSuffix(item.Name(), ".entry")
+		if legacy {
+			if checksumInfo, err := os.Stat(path + ".sha256"); err == nil {
+				size += checksumInfo.Size()
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
 		}
 		total += size
-		entries = append(entries, entry{path: path, size: size, modTime: info.ModTime()})
+		entries = append(entries, entry{path: path, size: size, modTime: info.ModTime(), legacy: legacy})
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("inspect cache: %w", err)
 	}
-	if total <= c.maxSize {
-		return nil
+	if total > c.maxSize {
+		sort.Slice(entries, func(i, j int) bool { return entries[i].modTime.Before(entries[j].modTime) })
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].modTime.Before(entries[j].modTime) })
 	for _, item := range entries {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -328,14 +361,25 @@ func (c *Cache) PruneContext(ctx context.Context) error {
 		if total <= c.maxSize {
 			break
 		}
-		key := filepath.Base(item.path)
-		if err := c.Remove(key); err == nil {
+		if err := os.Remove(item.path); err == nil || errors.Is(err, os.ErrNotExist) {
+			if item.legacy {
+				if err := os.Remove(item.path + ".sha256"); err != nil && !errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+			}
 			total -= item.size
 		}
 	}
 	if total > c.maxSize {
 		return fmt.Errorf("cache remains above %d bytes after pruning", c.maxSize)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(c.root, pruneMarker), []byte{'\n'}, 0o600); err != nil {
+		return fmt.Errorf("record cache prune timestamp: %w", err)
+	}
+	complete = true
 	return nil
 }
 
@@ -343,78 +387,20 @@ func (c *Cache) path(key string) string {
 	if len(key) < 2 {
 		key = Key(key)
 	}
-	return filepath.Join(c.root, key[:2], key)
+	return filepath.Join(c.root, key[:2], key+".entry")
 }
 
-func (c *Cache) checksumPath(key string) string {
-	return c.path(key) + ".sha256"
-}
-
-func writeChecksum(path string, checksum []byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return fmt.Errorf("create cache checksum: %w", err)
-	}
-	remove := true
-	defer func() {
-		file.Close()
-		if remove {
-			os.Remove(path)
-		}
-	}()
-	if _, err := fmt.Fprintf(file, "%x\n", checksum); err != nil {
-		return fmt.Errorf("write cache checksum: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		return fmt.Errorf("sync cache checksum: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close cache checksum: %w", err)
-	}
-	remove = false
-	return nil
-}
-
-func readChecksum(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	encoded, err := io.ReadAll(io.LimitReader(file, sha256.Size*2+2))
-	if err != nil || len(encoded) > sha256.Size*2+1 {
-		return nil, errors.New("invalid cache checksum")
-	}
-	value := strings.TrimSpace(string(encoded))
-	if len(value) != sha256.Size*2 {
-		return nil, errors.New("invalid cache checksum")
-	}
-	decoded, err := hex.DecodeString(value)
-	if err != nil {
-		return nil, errors.New("invalid cache checksum")
-	}
-	return decoded, nil
-}
-
-func equalBytes(left, right []byte) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	var difference byte
-	for index := range left {
-		difference |= left[index] ^ right[index]
-	}
-	return difference == 0
-}
+var copyBuffers = sync.Pool{New: func() any { return new([64 << 10]byte) }}
 
 func copyContext(ctx context.Context, destination io.Writer, source io.Reader) (int64, error) {
-	buffer := make([]byte, 64<<10)
+	buffer := copyBuffers.Get().(*[64 << 10]byte)
+	defer copyBuffers.Put(buffer)
 	var total int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
-		read, readErr := source.Read(buffer)
+		read, readErr := source.Read(buffer[:])
 		if read > 0 {
 			written, writeErr := destination.Write(buffer[:read])
 			total += int64(written)

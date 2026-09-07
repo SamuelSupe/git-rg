@@ -55,6 +55,72 @@ func TestMatcherRegexLiteralPrefixAndMultipleMatches(t *testing.T) {
 	}
 }
 
+func TestMatcherPreservesCRLFLineNumbersAndEmptyLines(t *testing.T) {
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	result, err := matcher.Scan("empty-crlf.txt", strings.NewReader("\r\nneedle\r\n\r\n"), 0)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if result.Matches != 1 || len(result.Events) != 1 {
+		t.Fatalf("result = %#v, want one match event", result)
+	}
+	event := result.Events[0]
+	if event.Type != "match" || event.Line != 2 || event.Column != 1 || event.Text != "needle" {
+		t.Fatalf("event = %#v, want line 2 with CRLF removed from text", event)
+	}
+}
+
+func TestMatcherMatchesLineAcrossReaderBufferBoundary(t *testing.T) {
+	const bufferSize = 64 << 10
+	prefix := strings.Repeat("a", bufferSize-3)
+	suffix := strings.Repeat("b", 17)
+	text := prefix + "needle" + suffix + "\n"
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	result, err := matcher.Scan("boundary.txt", strings.NewReader(text), 0)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if result.Matches != 1 || len(result.Events) != 1 {
+		t.Fatalf("result = %#v, want one match event", result)
+	}
+	event := result.Events[0]
+	if event.Line != 1 || event.Column != len(prefix)+1 || event.Text != strings.TrimSuffix(text, "\n") {
+		t.Fatalf("event = %#v, want match at byte column %d across %d-byte reader boundary", event, len(prefix)+1, bufferSize)
+	}
+	wantSubmatch := Submatch{Start: len(prefix), End: len(prefix) + len("needle"), Text: "needle"}
+	if !reflect.DeepEqual(event.Submatches, []Submatch{wantSubmatch}) {
+		t.Fatalf("submatches = %#v, want %#v", event.Submatches, []Submatch{wantSubmatch})
+	}
+}
+
+func TestMatcherEmittedTextSurvivesReaderPoolReuse(t *testing.T) {
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("NewMatcher() error = %v", err)
+	}
+	var first Event
+	result, err := matcher.ScanEmitContext(context.Background(), "first.txt", strings.NewReader("needle first\n"), 0, func(event Event) error {
+		first = event
+		return nil
+	})
+	if err != nil || result.Matches != 1 {
+		t.Fatalf("first ScanEmitContext() = result %#v, error %v; want one match", result, err)
+	}
+	result, err = matcher.ScanEmitContext(context.Background(), "second.txt", strings.NewReader("needle second with a longer line\n"), 0, func(Event) error { return nil })
+	if err != nil || result.Matches != 1 {
+		t.Fatalf("second ScanEmitContext() = result %#v, error %v; want one match", result, err)
+	}
+	if first.Text != "needle first" || len(first.Submatches) != 1 || first.Submatches[0].Text != "needle" {
+		t.Fatalf("first emitted event changed after reader reuse: %#v", first)
+	}
+}
+
 func TestMatcherContextDoesNotDuplicateLines(t *testing.T) {
 	matcher, err := NewMatcher(MatcherConfig{Pattern: `match`, Before: 2, After: 2})
 	if err != nil {

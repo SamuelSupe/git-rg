@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/SamuelSupe/git-rg/internal/provider"
 	"github.com/SamuelSupe/git-rg/internal/search"
@@ -167,6 +170,54 @@ func TestRunCommitInfoControlsNDJSONMeta(t *testing.T) {
 	}
 }
 
+func TestRunSummaryDurationIncludesResolveTime(t *testing.T) {
+	const delay = 50 * time.Millisecond
+	server := newCommitInfoTestServerWithDelay(t, delay)
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := []string{"--api-base", server.URL, "--no-cache", "--mode", "exact", "needle", "github:octocat/Hello-World"}
+	if status := Run(args, &stdout, &stderr); status != 0 {
+		t.Fatalf("Run() status = %d, stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+	var summary *search.Summary
+	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+		var event search.Event
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("output line is not JSON: %q (%v)", line, err)
+		}
+		if event.Type == "summary" {
+			summary = event.Summary
+		}
+	}
+	if summary == nil {
+		t.Fatalf("stdout = %q, want summary event", stdout.String())
+	}
+	if summary.DurationMS < int64(delay/time.Millisecond)/2 {
+		t.Fatalf("summary duration = %dms, want resolve delay included (at least %dms)", summary.DurationMS, int64(delay/time.Millisecond)/2)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunReturnsExitTwoOnNDJSONWriteFailure(t *testing.T) {
+	server := newCommitInfoTestServer(t)
+	defer server.Close()
+	var stderr bytes.Buffer
+	writeErr := errors.New("output sink failed")
+	stdout := &cliFailingWriter{err: writeErr, failOnSummary: true}
+	args := []string{"--api-base", server.URL, "--no-cache", "--mode", "exact", "needle", "github:octocat/Hello-World"}
+	if status := Run(args, stdout, &stderr); status != 2 {
+		t.Fatalf("Run() status = %d, want 2; stderr=%q", status, stderr.String())
+	}
+	if got := stdout.String(); !strings.Contains(got, `"type":"meta"`) || !strings.Contains(got, `"type":"match"`) {
+		t.Fatalf("successful output before summary failure = %q, want meta and match events", got)
+	}
+	if !strings.Contains(stderr.String(), "git-rg: write_output: output sink failed") {
+		t.Fatalf("stderr = %q, want write_output diagnostic", stderr.String())
+	}
+}
+
 func TestRunCommitInfoTextOutput(t *testing.T) {
 	server := newCommitInfoTestServer(t)
 	defer server.Close()
@@ -198,6 +249,10 @@ func TestRunCommitInfoTextOutput(t *testing.T) {
 }
 
 func newCommitInfoTestServer(t *testing.T) *httptest.Server {
+	return newCommitInfoTestServerWithDelay(t, 0)
+}
+
+func newCommitInfoTestServerWithDelay(t *testing.T, delay time.Duration) *httptest.Server {
 	t.Helper()
 	archive := makeCommitInfoArchive(t)
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +260,9 @@ func newCommitInfoTestServer(t *testing.T) *httptest.Server {
 		case "/repos/octocat/Hello-World":
 			_ = json.NewEncoder(w).Encode(map[string]any{"default_branch": "main"})
 		case "/repos/octocat/Hello-World/commits/main":
+			if delay > 0 {
+				time.Sleep(delay)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"sha":       "commit-main",
 				"author":    map[string]any{"login": "octocat"},
@@ -215,6 +273,17 @@ func newCommitInfoTestServer(t *testing.T) *httptest.Server {
 					"message":   "main commit",
 					"tree":      map[string]any{"sha": "tree-main"},
 				},
+			})
+		case "/repos/octocat/Hello-World/git/trees/tree-main":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"truncated": false,
+				"tree": []map[string]any{{
+					"path": "README.md",
+					"mode": "100644",
+					"type": "blob",
+					"sha":  cliGitBlobOID([]byte("needle\n")),
+					"size": len([]byte("needle\n")),
+				}},
 			})
 		case "/repos/octocat/Hello-World/tarball/commit-main":
 			_, _ = w.Write(archive)
@@ -243,6 +312,38 @@ func makeCommitInfoArchive(t *testing.T) []byte {
 		t.Fatalf("close gzip writer: %v", err)
 	}
 	return archive.Bytes()
+}
+
+func cliGitBlobOID(data []byte) string {
+	hash := sha1.New()
+	_, _ = fmt.Fprintf(hash, "blob %d\x00", len(data))
+	_, _ = hash.Write(data)
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+type cliFailingWriter struct {
+	err           error
+	failOnSummary bool
+	data          bytes.Buffer
+}
+
+func (w *cliFailingWriter) Write(data []byte) (int, error) {
+	if w.failOnSummary {
+		for _, line := range bytes.Split(data, []byte{'\n'}) {
+			if len(bytes.TrimSpace(line)) == 0 {
+				continue
+			}
+			var event search.Event
+			if err := json.Unmarshal(line, &event); err == nil && event.Type == "summary" {
+				return 0, w.err
+			}
+		}
+	}
+	return w.data.Write(data)
+}
+
+func (w *cliFailingWriter) String() string {
+	return w.data.String()
 }
 
 func TestRunRefsDefaultNDJSONAssociatesHeads(t *testing.T) {

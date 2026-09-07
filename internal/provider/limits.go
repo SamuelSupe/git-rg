@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"context"
 	"fmt"
 )
 
@@ -83,13 +82,4 @@ func enforcePageSize(resource string, items int) error {
 		return &ResourceLimitError{Resource: resource + " page item count", Limit: maxPageItems}
 	}
 	return nil
-}
-
-func checkContext(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return nil
-	}
 }

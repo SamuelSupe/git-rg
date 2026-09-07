@@ -22,7 +22,7 @@ func normalizeRefs(refs []Ref) ([]Ref, error) {
 func normalizeRefsContext(ctx context.Context, refs []Ref) ([]Ref, error) {
 	byName := make(map[string]Ref, len(refs))
 	for _, ref := range refs {
-		if err := checkContext(ctx); err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if ref.Kind != RefKindBranch && ref.Kind != RefKindTag {
@@ -56,7 +56,7 @@ func normalizeRefsContext(ctx context.Context, refs []Ref) ([]Ref, error) {
 		}
 		return result[i].Commit < result[j].Commit
 	})
-	if err := checkContext(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return result, nil

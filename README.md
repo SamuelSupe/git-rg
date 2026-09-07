@@ -12,13 +12,22 @@
 
 `git-rg` is a small Go command-line tool for remote code search. It resolves a branch, tag, or commit to a fixed commit SHA, reads only the API content needed for the selected search path, and emits agent-friendly NDJSON by default. It supports public, private, and self-managed GitHub/GitLab instances; it does not create a local checkout or download Git history.
 
+## What's new in v0.3.0
+
+- **Complete commit searches:** exact/auto validate the full tree and archive blob IDs, then fetch files omitted or changed by archive export rules.
+- **Better cache reuse:** narrowed searches use validated blob cache hits before download thresholds; probing is bounded when files are uncached.
+- **Lower allocation and memory costs:** streamed tree filtering, byte-based text matching, compiled globs, and bounded in-memory result buffering reduce repeated work.
+- **Efficient NDJSON streaming:** buffered output reduces small writes while keeping the first match immediate.
+
+See the [v0.3.0 release notes](docs/releases/v0.3.0.md) for changes and upgrade details. CLI flags and NDJSON schema v1 remain compatible. Legacy cache entries are rebuilt automatically; the first query after upgrading may download content again.
+
 ## Install and run
 
 Linux/macOS, installed to a user-owned directory:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.2.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.3.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -27,7 +36,7 @@ Windows PowerShell:
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.2.0
+& $installer -Version v0.3.0
 git-rg --version
 ```
 
@@ -53,6 +62,7 @@ git-rg refs github:OWNER/REPO
 
 ## Contents
 
+- [What's new in v0.3.0](#whats-new-in-v030)
 - [Why no clone](#why-no-clone)
 - [Install](#install)
 - [Repository addresses](#repository-addresses)
@@ -69,7 +79,7 @@ git-rg refs github:OWNER/REPO
 ## Why no clone
 
 - There is no clone, checkout, local worktree, Git executable, or Git-history download for the target repository. An agent can ask about a remote snapshot without first managing a repository-sized directory.
-- The ref is resolved to an immutable commit before content is read. Search then uses an archive stream, or a tree/blob path when required, and matches locally with Go's RE2 engine.
+- The ref is resolved to an immutable commit before content is read. Exact and auto searches load the complete commit tree, verify archive entries against blob IDs, and fetch omitted or changed files through the blob API. Matching runs locally with Go's RE2 engine.
 - `exact` can still read every matching ordinary text file in the selected commit. “Without cloning” removes the checkout and history transfer; it does not mean that a full search reads no repository content or uses no network.
 - SSH-style clone URLs are accepted for address parsing only. `git-rg` does not use SSH authentication or the Git transport.
 
@@ -77,29 +87,29 @@ The current providers are GitHub and GitLab. There is no offline mode, local-pat
 
 ## Install
 
-v0.2.0 is the current supported release. v0.1.0 remains downloadable for reproduction or rollback but is EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
+v0.3.0 is the current supported release. Earlier v0.x releases remain downloadable for reproduction or rollback but are EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
 
 ### Pre-built platform matrix
 
 The six combinations below are Tier 1 and are shipped for every release:
 
-| Operating system | Architecture | v0.2.0 asset | Support |
+| Operating system | Architecture | v0.3.0 asset | Support |
 | --- | --- | --- | --- |
-| Linux | amd64 (x86_64) | `git-rg_v0.2.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.2.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64 (x86_64) | `git-rg_v0.2.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.2.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64 (x86_64) | `git-rg_v0.2.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.2.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64 (x86_64) | `git-rg_v0.3.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.3.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64 (x86_64) | `git-rg_v0.3.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.3.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64 (x86_64) | `git-rg_v0.3.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.3.0_windows_arm64.zip` | Tier 1 |
 
-Each archive contains one top-level version directory and one executable. The v0.2.0 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
+Each archive contains one top-level version directory and one executable. The v0.3.0 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
 
 ### GitHub Release (manual)
 
-Download the matching asset from the [v0.2.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.2.0), download `checksums.txt`, and verify before extracting:
+Download the matching asset from the [v0.3.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.3.0), download `checksums.txt`, and verify before extracting:
 
 ```sh
-version=v0.2.0
+version=v0.3.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -117,7 +127,7 @@ The script supports amd64 and arm64, defaults to `$HOME/.local/bin`, and does no
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.2.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.3.0 --bin-dir "$HOME/.local/bin"
 ```
 
 Use `--version VERSION` for a fixed release or omit it for the latest release. Use `--bin-dir DIRECTORY` to select the destination. For a reviewable installation, download the script first, inspect it, and then run it. The complete option list and failure handling are in [docs/installation.md](docs/installation.md).
@@ -129,7 +139,7 @@ The script supports Windows amd64 and arm64. It defaults to `%LOCALAPPDATA%\Prog
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.2.0
+& $installer -Version v0.3.0
 git-rg --version
 ```
 
@@ -166,7 +176,7 @@ With Go 1.26 or newer:
 
 ```sh
 # Pin the supported release.
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.2.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.3.0
 
 # Or follow the latest module version.
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -223,9 +233,13 @@ The command is `git-rg [FLAGS] PATTERN REPOSITORY`. Every mode first resolves `-
 
 | Mode | What it does | Completeness meaning |
 | --- | --- | --- |
-| `exact` | Does not call the code index and does not enumerate a tree up front. It streams the immutable commit archive and matches every glob-selected ordinary file. If the archive is unavailable before the first ordinary file, it falls back to a complete tree and blob scan. | A normal end is `summary.complete=true`. A result limit, timeout, request/provider error, cancellation, or resource limit makes the result incomplete. This is the mode for a full audit. |
-| `auto` (default) | May use a provider code index when the pattern has a literal prefix and the request budget leaves headroom. It can prefetch up to 16 indexed candidates, then performs the archive scan over the whole commit. Index failure or lack of a prefix does not make the final archive scan partial. | The final scan is exact for the selected commit, except when a result limit or hard error stops it. Index candidates are acceleration only; an index warning does not turn a complete archive scan into an incomplete result. |
+| `exact` | Loads the complete immutable commit tree without calling the code index. It verifies selected archive entries against their Git blob IDs and reads omitted or rewritten entries from the blob API. If the archive is unavailable before the first ordinary file, it uses the tree and blobs. | A normal end is `summary.complete=true`. A result limit, timeout, request/provider error, cancellation, or resource limit makes the result incomplete. This is the mode for a full audit. |
+| `auto` (default) | Uses the same complete tree and verified archive/blob scan as exact. A cached archive skips the index. On a cache miss, a literal prefix and enough request budget allow prefetching up to 16 indexed candidates before scanning the remaining files. | The final scan is exact for the selected commit, except when a result limit or hard error stops it. Index candidates are acceleration only; an index warning does not turn a complete archive scan into an incomplete result. |
 | `indexed` | Searches provider index candidates only, validates/glob-filters/deduplicates their paths, and reads each candidate at the selected commit. It does not use the archive and does not fall back to a full scan when the index fails. | Always `summary.complete=false` with reason `indexed_mode`. Coverage and availability depend on the provider index, so a miss is not proof that the commit has no match. |
+
+An incomplete or unavailable tree cannot establish a complete exact/auto result. Tree pagination counts toward `--max-requests`; large repositories may need a larger budget. Archive `export-ignore`, `export-subst`, and LFS expansion do not change the selected commit content that is searched.
+
+When explicit globs narrow the tree, exact/auto uses validated blob cache hits before applying download thresholds. If all selected files are cached, no archive, index, or blob download is needed. For the remaining files, up to eight blobs can be downloaded directly: known sizes must total at most 8 MiB; multiple missing files must have known sizes and cover at most a quarter of the tree. A single missing file with an unknown size is also eligible. The request budget must leave room for retries. These download thresholds do not restrict cache hits. After more than eight cache misses, probing stops and the usual archive/index strategy handles the remaining files. Failed blob prefetches fall back to the archive, without repeating successful files.
 
 `indexed` requires a non-empty literal prefix that Go can extract from the pattern. GitHub and GitLab candidate requests are bounded to at most 10 pages of 100 items and an 8 MiB candidate-path budget; provider coverage can still vary. Do not assume every indexed search is available or complete.
 
@@ -251,7 +265,7 @@ git-rg refs [FLAGS] REPOSITORY
 
 `refs` uses the provider's branch and tag APIs with full pagination. Results are validated, deduplicated, stably sorted, and not disk-cached because refs are mutable:
 
-The v0.2.0 interface is the `refs` subcommand (the list-refs operation); there is no `--list-refs` flag.
+The v0.3.0 interface is the `refs` subcommand (the list-refs operation); there is no `--list-refs` flag.
 
 ```sh
 git-rg refs github:OWNER/REPO
@@ -314,6 +328,10 @@ Standard output contains one JSON object per line. Each event has a `type`; pref
 | `warning` / `error` | Stable `code` and `message`. |
 | `summary` | Nested `summary` with counts, byte/request statistics, `complete`, `truncated`, `duration_ms`, and optional `reason`, `transport`, or `rate_limit`. |
 
+For search commands, `duration_ms` covers argument processing, ref resolution, cache maintenance, scanning, and result writes up to the summary. Process startup and writing the summary itself are outside that measurement.
+
+Search output batches NDJSON writes in a 64 KiB buffer. Metadata, the first match, warnings, errors, and the summary flush immediately; pending results also flush on a 100 ms timer so sparse matches remain visible to pipe consumers.
+
 `submatches` contains every full match on the line, not capture groups. Each item is `{ "start": 0, "end": 4, "text": "TODO" }`, with zero-based, end-exclusive byte offsets. Match and context events retain `"text":""` for an empty line. `transport` may be `archive`, `blob_fallback`, or `blob`.
 
 Example (values are illustrative):
@@ -370,12 +388,12 @@ Internal CA deployments should install the CA into the system trust chain used b
 
 ## Cache
 
-The persistent cache stores commit-pinned tree, blob, archive, and indexed raw-file entries. It stores checksummed content with `.sha256` sidecars and publishes complete entries atomically; tokens are not a cache input. Mutable branch/tag listings are queried fresh rather than disk-cached.
+The persistent cache stores commit-pinned tree, blob, archive, and indexed raw-file entries. Each `.entry` file contains a versioned header, a SHA-256 checksum, and its payload, published with one rename; tokens are not a cache input. Legacy payload/sidecar pairs are treated as cache misses and remain eligible for capacity pruning. Mutable branch/tag listings are queried fresh rather than disk-cached.
 
 - The default cache root is `os.UserCacheDir()/git-rg`. Typical locations are `~/Library/Caches/git-rg` on macOS, `$XDG_CACHE_HOME/git-rg` or `~/.cache/git-rg` on Linux, and `%LocalAppData%\git-rg` on Windows. The actual path is platform/runtime dependent.
-- The default cache capacity is 512 MiB total. Startup/end pruning is best effort under concurrent commands; stale temporary files and orphan checksum sidecars older than 24 hours may be removed.
+- The default cache capacity is 512 MiB total. Commands check whether pruning is due at startup/end: a successful cache write triggers cleanup, while read-only runs share a five-minute cleanup timestamp. Pruning remains best effort under concurrent commands; stale temporary files and orphan checksum sidecars older than 24 hours may be removed.
 - The program attempts to use `0700` cache directories and `0600` cache files. Actual permission semantics depend on the OS, filesystem, umask, ACLs, and account setup; treat private cache contents as sensitive and verify the effective permissions in your environment.
-- `--no-cache` disables persistent cache reads, writes, and pruning for that run. It does not disable the runtime temporary result spool: match/context events may be staged in an OS temporary file with mode `0600`, up to 32 MiB per file, and are removed after use. A high-sensitivity or temporary agent should use `--no-cache` and also protect/isolate the OS temporary directory.
+- `--no-cache` disables persistent cache reads, writes, and pruning for that run. Results first use a memory buffer with a conservative 256 KiB byte budget per worker. Larger results use a binary spool in an OS temporary file with mode `0600`, up to 32 MiB per file, and are removed after use; `--no-cache` does not disable this spool. A high-sensitivity or temporary agent should use `--no-cache` and also protect/isolate the OS temporary directory.
 - Cache or spool limits, invalid checksums, and cache I/O failures are reported explicitly; an invalid cache entry is not trusted as repository content. A cache-directory setup failure emits `cache_disabled` and the search may continue without persistent caching.
 
 ## Resource and platform boundaries
@@ -388,7 +406,7 @@ The limits below are deliberate bounds, not capacity promises:
 | One text file scanned | 512 MiB |
 | Before-context buffer | 32 MiB |
 | Full matches on one line | 100,000 |
-| One result spool | 32 MiB; search workers are capped at 8 |
+| One result spool | 256 KiB memory budget, then up to 32 MiB on disk; at most 8 workers |
 | Compressed archive input | 512 MiB |
 | Expanded archive output | 4 GiB |
 | Archive headers/path metadata | 1,000,000 headers / 128 MiB; one path is at most 1 MiB |
@@ -397,7 +415,7 @@ The limits below are deliberate bounds, not capacity promises:
 | Ref listing | 100,000 refs / 32 MiB metadata / 1,000 logical pagination requests |
 | Indexed candidates | 10 pages of up to 100 items / 8 MiB path metadata |
 
-Exceeding a local or provider bound returns an explicit `resource_limit` error. GitHub's Git Blob API path rejects objects larger than 100 MiB; archive reads have their own compressed, expanded, and local-file limits. Files are probed for NUL bytes and invalid UTF-8; binary/invalid-UTF-8 files are skipped, and a NUL discovered after provisional matches discards that file's staged events. A result limit stops before the unread suffix, so no inspection claim is made for content after the limit.
+Exceeding a local or provider bound returns an explicit `resource_limit` error. GitHub's Git Blob API path rejects objects larger than 100 MiB; archive reads have their own compressed, expanded, and local-file limits. Files are probed for NUL bytes and invalid UTF-8; binary/invalid-UTF-8 files are skipped, and a NUL discovered after provisional matches discards that file's staged events. A result limit stops matching before the remaining suffix, so no text/binary inspection claim is made for that suffix. Archive entries are still read to their end, within resource limits, to verify the blob hash before results are emitted.
 
 Each HTTP request gets at most three attempts. The client respects usable `Retry-After`/rate-limit reset delays, allows at most five redirects, refuses HTTPS downgrade, and strips authorization headers when following an HTTPS cross-host redirect. `--max-requests` counts requests made for ref resolution, indexes, trees, archives, blobs, retries, and redirects.
 
@@ -414,5 +432,9 @@ go build -trimpath -o ./git-rg ./cmd/git-rg
 ```
 
 CI runs `go test -race ./...`, `go vet ./...`, and a build, followed by native smoke checks for the six Tier 1 combinations. The release workflow builds checksummed archives and exercises installer and public GitHub/GitLab smoke paths. For support boundaries, report `git-rg --version`, OS/architecture, provider, mode, cache choice, a redacted command, and redacted NDJSON `meta`/`summary`/`error`; never include tokens, private source, or private cache files. Read [SUPPORT.md](SUPPORT.md) before relying on a non-Tier-1 platform or an EOL release.
+
+Run the local performance matrix with `go test ./internal/search -run '^$' -bench BenchmarkRunner -benchmem -count 3`. It measures cold/warm cache, many small files, dense matches, and a single-file exact glob direct-blob path, including first-match latency and provider request counts; it does not model remote network latency.
+
+Use `go test ./internal/cli -run '^$' -bench BenchmarkCLI -benchmem -count 3` for the complete CLI call, including ref resolution through a local HTTP fixture, cache maintenance, and NDJSON file output. It also covers large cache directories; external network latency and process startup are excluded.
 
 Released under the [MIT License](LICENSE).

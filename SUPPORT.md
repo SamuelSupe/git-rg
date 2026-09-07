@@ -1,6 +1,6 @@
 # git-rg 支持与兼容策略
 
-当前稳定版本为 v0.2.0。v0.x 只维护最新稳定版本：v0.2.0 发布后，v0.1.0 保留在 GitHub Releases 中供复现和回滚，但进入 EOL，不再接受普通缺陷、安全或兼容修复。支持策略的目标是让 agent 能明确判断一次搜索结果的完整性、输出契约和运行平台边界。
+当前稳定版本为 v0.3.0。v0.x 只维护最新稳定版本：v0.3.0 发布后，v0.2.0 和 v0.1.0 保留在 GitHub Releases 中供复现和回滚，但进入 EOL，不再接受普通缺陷、安全或兼容修复。支持策略的目标是让 agent 能明确判断一次搜索结果的完整性、输出契约和运行平台边界。
 
 ## 预构建兼容矩阵
 
@@ -21,15 +21,15 @@
 
 - 源码构建和 go install 的最低 Go 版本为 1.26。最低版本只在 minor release 中提升，并会在发布说明和迁移说明中明确标记。
 - GitHub.com 和 GitLab.com 是每次发布的主要 SaaS 验证目标。公开仓库和带有合适权限的私有仓库都在支持范围内，但请求仍受平台 API 配额、仓库权限、对象大小和服务可用性约束。
-- GitHub Enterprise Server（GHES）和自建 GitLab 通过对应 REST API 提供 best effort 支持。v0.2.0 不承诺具体 GHES/GitLab Server 最低版本；部署方必须用目标实例的 --provider、--api-base、token 和代表性仓库做验收。
+- GitHub Enterprise Server（GHES）和自建 GitLab 通过对应 REST API 提供 best effort 支持。v0.3.0 不承诺具体 GHES/GitLab Server 最低版本；部署方必须用目标实例的 --provider、--api-base、token 和代表性仓库做验收。
 - 支持单仓库、单个 branch/tag/commit ref；不支持跨组织/跨 group 搜索、Git 历史搜索、替换、远端提交或通用 Git 服务器协议。
 - 认证只使用 GITRG_TOKEN、公共 GitHub 的 GITHUB_TOKEN/GH_TOKEN 或公共 GitLab 的 GITLAB_TOKEN。token 不作为 CLI 参数，不写入日志或缓存；私有化 host 使用 GITRG_TOKEN。
 
 ## 搜索结果完整性
 
-exact 会在指定不可变 commit 上扫描符合 glob 的普通文本文件；在可用的 archive 路径上流式读取内容，必要时完整回退到 tree/blob。正常结束时 summary.complete=true，但 --max-results、超时、请求失败、资源限制或取消都必须显式报告不完整。
+exact 先读取完整的不可变 commit tree，确定符合 glob 的普通文本文件；利用通过校验的缓存和 archive 流式扫描内容，核验 archive 条目的 blob ID，并通过 blob API 补读遗漏或被改写的文件。完整 tree 不可用时不会声明结果完整。正常结束时 summary.complete=true，但 --max-results、超时、请求失败、资源限制或取消都必须显式报告不完整。
 
-auto 默认优先使用平台索引缩小候选并由本地 Go RE2 matcher 复核，但最终仍扫描指定 commit 的剩余内容；索引失败或不可用时继续 exact 路径。indexed 只搜索索引候选，summary.complete 永远为 false，适用于低延迟候选查询，不可作为全仓库未命中的证明。
+auto 使用与 exact 相同的完整 tree 和内容核验流程，优先复用缓存；在请求预算允许时使用平台索引加速候选，再由本地 Go RE2 matcher 复核，最终扫描指定 commit 的剩余内容。索引失败或不可用时继续 exact 路径。indexed 只搜索索引候选，summary.complete 永远为 false，适用于低延迟候选查询，不可作为全仓库未命中的证明。
 
 默认最多返回 200 个匹配行；达到上限时 summary.truncated=true、summary.complete=false、reason="result_limit"。需要完整结果时显式使用 --max-results=0，并设置足够的 --timeout 与请求预算。搜索不 clone 目标仓库、不 checkout、不下载 Git 历史；exact 的最坏情况仍可能读取指定 commit 中全部符合条件的文本内容。
 

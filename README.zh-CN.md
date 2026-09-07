@@ -12,13 +12,23 @@
 
 `git-rg` 是一个用 Go 编写的远程代码搜索命令行工具。它会先把分支、tag 或 commit 解析为固定的 commit SHA，再按所选搜索路径从 API 按需读取内容，默认输出适合 agent 消费的 NDJSON。它支持公开、私有以及自建的 GitHub/GitLab 实例；不会创建本地工作树，也不会下载 Git 历史。
 
+<a id="whats-new-in-v030"></a>
+## v0.3.0 更新
+
+- **完整扫描 commit 内容**：exact/auto 核验完整 tree 和 archive 中的 blob ID，补读被 archive 导出规则遗漏或改写的文件。
+- **更充分地复用缓存**：缩小范围的查询在应用下载门槛前利用已校验的 blob 缓存；未命中时限制探测开销。
+- **减少分配与内存开销**：流式筛选 tree、按字节匹配文本、预编译 glob，并使用有界的内存结果缓冲，减少重复处理。
+- **更高效地输出 NDJSON**：缓冲小块写入，同时立即输出首条匹配。
+
+完整变更和升级说明见 [v0.3.0 发布说明](docs/releases/v0.3.0.md)。CLI 参数和 NDJSON schema v1 保持兼容。旧缓存会自动重新构建，升级后的首次查询可能重新下载内容。
+
 ## 安装并运行
 
 Linux/macOS，安装到用户目录：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.2.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.3.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -27,7 +37,7 @@ Windows PowerShell：
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.2.0
+& $installer -Version v0.3.0
 git-rg --version
 ```
 
@@ -53,6 +63,7 @@ git-rg refs github:OWNER/REPO
 
 ## 目录
 
+- [v0.3.0 更新](#whats-new-in-v030)
 - [为什么不需要 clone](#why-no-clone)
 - [安装](#install)
 - [仓库地址](#repository-addresses)
@@ -70,7 +81,7 @@ git-rg refs github:OWNER/REPO
 ## 为什么不需要 clone
 
 - 对目标仓库不会执行 clone、checkout，不创建本地工作树，不调用 Git，也不下载 Git 历史。agent 可以直接查询远程 snapshot，不必先管理一个与仓库大小相当的目录。
-- 内容读取前会先把 ref 解析为不可变 commit。之后使用 archive 流，或在必要时使用 tree/blob 路径，并用 Go RE2 引擎在本地匹配。
+- 内容读取前会先把 ref 解析为不可变 commit。exact/auto 先读取完整 commit tree，按 blob ID 核验 archive 条目，缺失或被改写的内容由 blob API 补读，再用 Go RE2 引擎在本地匹配。
 - `exact` 仍可能读取所选 commit 中所有符合条件的普通文本文件。“不 clone”省去工作树和历史传输，并不表示完整搜索不读取仓库内容或不需要网络。
 - SSH 风格的 clone URL 只用于解析地址。`git-rg` 不使用 SSH 认证，也不使用 Git 传输。
 
@@ -79,29 +90,29 @@ git-rg refs github:OWNER/REPO
 <a id="install"></a>
 ## 安装
 
-v0.2.0 是当前支持版本。v0.1.0 仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
+v0.3.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
 
 ### 预构建平台矩阵
 
 以下六种组合属于 Tier 1，每个 Release 都会提供：
 
-| 操作系统 | 架构 | v0.2.0 资产 | 支持级别 |
+| 操作系统 | 架构 | v0.3.0 资产 | 支持级别 |
 | --- | --- | --- | --- |
-| Linux | amd64（x86_64） | `git-rg_v0.2.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.2.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64（x86_64） | `git-rg_v0.2.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.2.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64（x86_64） | `git-rg_v0.2.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.2.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64（x86_64） | `git-rg_v0.3.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.3.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64（x86_64） | `git-rg_v0.3.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.3.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64（x86_64） | `git-rg_v0.3.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.3.0_windows_arm64.zip` | Tier 1 |
 
-每个 archive 包含一个顶层版本目录和一个可执行文件。v0.2.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
+每个 archive 包含一个顶层版本目录和一个可执行文件。v0.3.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
 
 ### GitHub Release（手工下载）
 
-从 [v0.2.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.2.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
+从 [v0.3.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.3.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
 
 ```sh
-version=v0.2.0
+version=v0.3.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -119,7 +130,7 @@ macOS 如果没有 `sha256sum`，可改用 `shasum -a 256`；按机器选择 `da
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.2.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.3.0 --bin-dir "$HOME/.local/bin"
 ```
 
 使用 `--version VERSION` 固定版本；省略时使用 latest。使用 `--bin-dir DIRECTORY` 指定安装目录。需要可审阅的安装过程时，先下载并检查脚本，再执行它。完整参数和失败处置见 [docs/installation.md](docs/installation.md)。
@@ -131,7 +142,7 @@ curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.2.0
+& $installer -Version v0.3.0
 git-rg --version
 ```
 
@@ -168,7 +179,7 @@ scoop uninstall git-rg
 
 ```sh
 # 固定到当前支持版本。
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.2.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.3.0
 
 # 或跟随最新模块版本。
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -227,9 +238,13 @@ git-rg --provider gitlab \
 
 | 模式 | 行为 | 完整性含义 |
 | --- | --- | --- |
-| `exact` | 不调用代码索引，也不会预先枚举 tree。流式读取不可变 commit archive，匹配所有符合 glob 的普通文件。若 archive 在读取首个普通文件前不可用，则回退到完整 tree 和 blob 扫描。 | 正常结束时为 `summary.complete=true`。结果上限、超时、请求/provider 错误、取消或资源上限都会使结果不完整。这是完整审计模式。 |
-| `auto`（默认） | 当模式有字面前缀且请求预算有余量时，可以使用 provider 代码索引；最多预取 16 个索引候选，然后对整个 commit 执行 archive 扫描。索引失败或没有前缀不会让最终 archive 扫描变成部分扫描。 | 最终扫描是所选 commit 上的精确扫描，除非结果上限或硬错误提前终止。索引候选只是加速；索引 warning 不会把完整 archive 扫描变成不完整。 |
+| `exact` | 先读取不可变 commit 的完整 tree，不调用代码索引。所选 archive 文件按 Git blob ID 核验，归档中缺失或被改写的文件从 blob API 补读。若 archive 在读取首个普通文件前不可用，则使用 tree 和 blob 扫描。 | 正常结束时为 `summary.complete=true`。结果上限、超时、请求/provider 错误、取消或资源上限都会使结果不完整。这是完整审计模式。 |
+| `auto`（默认） | 与 exact 使用相同的完整 tree 和经核验的 archive/blob 扫描。命中 archive 缓存时跳过索引；未命中缓存、模式有字面前缀且请求预算有余量时，最多预取 16 个索引候选，然后扫描剩余文件。 | 最终扫描是所选 commit 上的精确扫描，除非结果上限或硬错误提前终止。索引候选只是加速；索引 warning 不会把完整 archive 扫描变成不完整。 |
 | `indexed` | 只搜索 provider 索引候选，校验、按 glob 过滤、去重路径，再读取所选 commit 上的候选文件。不使用 archive，索引失败时也不会回退为全量扫描。 | `summary.complete=false` 固定不变，reason 为 `indexed_mode`。覆盖范围和可用性取决于 provider 索引，未命中不能证明该 commit 没有匹配。 |
+
+完整 tree 不可用或分页未完成时，exact/auto 不会声明结果完整。tree 分页计入 `--max-requests`，大型仓库可能需要提高请求预算。archive 的 `export-ignore`、`export-subst` 和 LFS 展开不会改变实际搜索的 commit 原始内容。
+
+显式 glob 缩小搜索范围时，exact/auto 在应用下载门槛前利用通过校验的 blob 缓存；全部命中时，无需 archive、索引或 blob 下载。对于剩余未命中的文件，可以直接下载最多 8 个 blob：已知大小合计须不超过 8 MiB；缺失多个文件时，每个文件须有已知大小，且数量不超过 tree 的四分之一。单个大小未知的缺失文件也可使用该路径。请求预算须为重试留出余量，这些下载门槛不限制缓存命中。发现超过 8 个未命中文件后便停止探测，由原有 archive/索引策略处理剩余文件。blob 预读失败时回退 archive，已成功读取的文件不会重复输出。
 
 `indexed` 要求 Go 能从模式中提取出非空字面前缀。GitHub 和 GitLab 的候选请求最多 10 页、每页 100 项，并受 8 MiB 候选路径预算限制；provider 的覆盖范围仍可能不同。不要假设所有 indexed search 都可用或完整。
 
@@ -258,7 +273,7 @@ git-rg refs [FLAGS] REPOSITORY
 
 `refs` 使用 provider 的 branch 和 tag API，并完整分页。结果会校验、去重、稳定排序；因为 ref 会变化，所以不写入磁盘缓存：
 
-v0.2.0 的接口是 `refs` 子命令（list-refs 操作），没有 `--list-refs` flag。
+v0.3.0 的接口是 `refs` 子命令（list-refs 操作），没有 `--list-refs` flag。
 
 ```sh
 git-rg refs github:OWNER/REPO
@@ -323,6 +338,10 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 | `warning` / `error` | 稳定的 `code` 和 `message`。 |
 | `summary` | 嵌套的 `summary`，包含计数、字节/请求统计、`complete`、`truncated`、`duration_ms`，以及可选的 `reason`、`transport`、`rate_limit`。 |
 
+搜索命令的 `duration_ms` 包含参数处理、ref 解析、缓存维护、扫描和 summary 之前的结果输出；不包含进程启动与 summary 自身的写出。
+
+搜索命令使用 64 KiB 缓冲批量写出 NDJSON。meta、首条 match、warning、error 和 summary 会立即刷新；尚未写出的结果也会通过 100 ms 定时器刷新，方便管道消费方及时读取零散命中。
+
 `submatches` 是该行每个完整命中的数组，不是捕获组数组。每项形如 `{ "start": 0, "end": 4, "text": "TODO" }`，start/end 是从 0 开始、end-exclusive 的字节偏移。空行的 match/context event 仍保留 `"text":""`。`transport` 可能是 `archive`、`blob_fallback` 或 `blob`。
 
 示例（字段值仅作说明）：
@@ -381,12 +400,12 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 <a id="cache"></a>
 ## 缓存
 
-持久化缓存保存 commit 固定的 tree、blob、archive 和 indexed raw-file 条目，使用 `.sha256` sidecar 校验内容，并以原子方式发布完整条目；token 不参与缓存 key。branch/tag 列表会变化，因此每次重新查询，不写入磁盘缓存。
+持久化缓存保存 commit 固定的 tree、blob、archive 和 indexed raw-file 条目，每个 `.entry` 文件包含版本头、SHA-256 校验和及正文，通过一次 rename 发布完整条目；token 不参与缓存 key。旧正文与 sidecar 缓存视为未命中，仍纳入容量清理。branch/tag 列表会变化，因此每次重新查询，不写入磁盘缓存。
 
 - 默认缓存根目录是 `os.UserCacheDir()/git-rg`。常见位置是 macOS 的 `~/Library/Caches/git-rg`、Linux 的 `$XDG_CACHE_HOME/git-rg` 或 `~/.cache/git-rg`，以及 Windows 的 `%LocalAppData%\git-rg`。实际路径取决于平台和运行时环境。
-- 默认缓存容量总计为 512 MiB。在并发命令下，启动/结束时的清理是 best effort；超过 24 小时的临时文件和孤立 checksum sidecar 可能被清理。
+- 默认缓存容量总计为 512 MiB。命令启动/结束时检查是否需要清理：成功写入缓存后触发清理，只读查询共享一个五分钟清理时间戳。并发命令下仍为 best effort；超过 24 小时的临时文件和孤立 checksum sidecar 可能被清理。
 - 程序会尝试将缓存目录设为 `0700`、缓存文件设为 `0600`。真实权限语义还取决于操作系统、文件系统、umask、ACL 和账号配置；私有缓存必须按敏感数据处理，并在目标环境检查有效权限。
-- `--no-cache` 禁用本次运行的持久化缓存读写和清理，但不会禁用运行时临时结果 spool：match/context event 可能先写入 OS 临时目录中的 `0600` 文件，每个文件上限 32 MiB，用完会删除。高敏感或临时 agent 应使用 `--no-cache`，同时保护或隔离 OS 临时目录。
+- `--no-cache` 禁用本次运行的持久化缓存读写和清理，结果先使用每个 worker 最多 256 KiB 保守字节预算的内存缓冲；超出后以二进制格式写入 OS 临时目录中的 `0600` 文件，每个文件上限 32 MiB，用完会删除。`--no-cache` 不会禁用该结果 spool。高敏感或临时 agent 应使用 `--no-cache`，同时保护或隔离 OS 临时目录。
 - cache/spool 超限、checksum 无效和缓存 I/O 错误都会明确报告；无效缓存不会被当作可信仓库内容。缓存目录初始化失败会发出 `cache_disabled` warning，搜索可能在不使用持久化缓存的情况下继续。
 
 <a id="resource-and-platform-boundaries"></a>
@@ -400,7 +419,7 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 | 单个扫描文本文件 | 512 MiB |
 | before-context 缓冲 | 32 MiB |
 | 单行完整匹配数 | 100,000 |
-| 单个结果 spool | 32 MiB；搜索 worker 最多 8 个 |
+| 单个结果 spool | 内存预算 256 KiB，超出后最多 32 MiB 磁盘文件；搜索 worker 最多 8 个 |
 | 压缩 archive 输入 | 512 MiB |
 | 解压 archive 输出 | 4 GiB |
 | archive header/路径元数据 | 1,000,000 个 header / 128 MiB；单个路径最多 1 MiB |
@@ -409,7 +428,7 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 | Ref 列表 | 100,000 个 ref / 32 MiB 元数据 / 1,000 次逻辑分页请求 |
 | Indexed 候选 | 最多 10 页、每页最多 100 项 / 8 MiB 路径元数据 |
 
-超过本地或 provider 边界会返回明确的 `resource_limit` error。GitHub Git Blob API 路径拒绝大于 100 MiB 的对象；archive 读取使用独立的压缩、解压和本地文件上限。文件会探测 NUL 和非法 UTF-8；二进制/非法 UTF-8 文件会跳过，如果在暂存匹配之后才发现 NUL，则丢弃该文件的全部暂存 event。达到结果上限后会停止读取，因此不会对上限之后的未读后缀作检查承诺。
+超过本地或 provider 边界会返回明确的 `resource_limit` error。GitHub Git Blob API 路径拒绝大于 100 MiB 的对象；archive 读取使用独立的压缩、解压和本地文件上限。文件会探测 NUL 和非法 UTF-8；二进制/非法 UTF-8 文件会跳过，如果在暂存匹配之后才发现 NUL，则丢弃该文件的全部暂存 event。达到结果上限后停止匹配，不对后缀作文本/二进制检查承诺；archive 条目仍会在资源限制内读到文件末尾，验证 blob 哈希后才输出结果。
 
 每个 HTTP 请求最多尝试 3 次。客户端尊重可用的 `Retry-After`/限流 reset 延迟，最多允许 5 次重定向，拒绝 HTTPS 降级；HTTPS 跨 host 重定向时会剥离授权请求头。`--max-requests` 统计 ref 解析、索引、tree、archive、blob、重试和重定向请求。
 
@@ -427,5 +446,9 @@ go build -trimpath -o ./git-rg ./cmd/git-rg
 ```
 
 CI 会运行 `go test -race ./...`、`go vet ./...` 和构建，并对六个 Tier 1 组合执行原生 smoke 检查。Release workflow 构建带 checksum 的 archive，并执行安装脚本以及公开 GitHub/GitLab smoke。反馈问题时请提供 `git-rg --version`、OS/架构、provider、mode、缓存选择、脱敏后的命令和脱敏后的 NDJSON `meta`/`summary`/`error`；不要附带 token、私有源码或私有缓存文件。依赖非 Tier 1 平台或 EOL 版本前，请阅读 [SUPPORT.md](SUPPORT.md)。
+
+本地性能矩阵：`go test ./internal/search -run '^$' -bench BenchmarkRunner -benchmem -count 3`。它覆盖冷/热缓存、大量小文件、高匹配量，以及单文件精确 glob 的 direct-blob 路径，并记录首条结果延迟及 provider 请求数；不模拟远程网络延迟。
+
+完整 CLI 调用基准：`go test ./internal/cli -run '^$' -bench BenchmarkCLI -benchmem -count 3`，包含本地 HTTP fixture 的 ref 解析、缓存维护和 NDJSON 文件输出，并覆盖大量缓存条目；不包含外部网络延迟与进程启动。
 
 本项目采用 [MIT License](LICENSE) 发布。

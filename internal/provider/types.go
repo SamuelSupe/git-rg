@@ -96,7 +96,6 @@ func (e *RequestBudgetError) Error() string {
 }
 
 type Provider interface {
-	Name() string
 	Resolve(context.Context, Repository, string) (Snapshot, error)
 	ListTree(context.Context, Snapshot, bool) ([]Entry, bool, error)
 	OpenBlob(context.Context, Snapshot, Entry) (io.ReadCloser, error)

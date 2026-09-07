@@ -13,8 +13,7 @@ import (
 )
 
 type gitHub struct {
-	repository Repository
-	client     *client
+	client *client
 }
 
 func newGitHub(repository Repository, token string, timeout time.Duration) *gitHub {
@@ -22,10 +21,8 @@ func newGitHub(repository Repository, token string, timeout time.Duration) *gitH
 }
 
 func newGitHubWithOptions(repository Repository, token string, options Options) *gitHub {
-	return &gitHub{repository: repository, client: newClient(options, setGitHubHeaders(token), token)}
+	return &gitHub{client: newClient(options, setGitHubHeaders(token), token)}
 }
-
-func (g *gitHub) Name() string { return "github" }
 
 func (g *gitHub) RequestStats() RequestStats { return g.client.stats() }
 
@@ -154,7 +151,7 @@ func (g *gitHub) listRefs(ctx context.Context, endpoint string, kind RefKind, bu
 			return nil, err
 		}
 		for _, item := range response {
-			if err := checkContext(ctx); err != nil {
+			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 			if err := budget.add(item.Name, item.Commit.SHA); err != nil {
@@ -197,7 +194,7 @@ func (g *gitHub) ListTree(ctx context.Context, snapshot Snapshot, requireComplet
 	queue := []queuedTree{{oid: snapshot.TreeOID}}
 	entries := make([]Entry, 0, len(response.Tree))
 	for head := 0; head < len(queue); head++ {
-		if err := checkContext(ctx); err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, false, err
 		}
 		current := queue[head]
@@ -213,7 +210,7 @@ func (g *gitHub) ListTree(ctx context.Context, snapshot Snapshot, requireComplet
 			return nil, false, fmt.Errorf("GitHub non-recursive subtree %q was unexpectedly truncated", current.prefix)
 		}
 		for _, item := range subtree.Tree {
-			if err := checkContext(ctx); err != nil {
+			if err := ctx.Err(); err != nil {
 				return nil, false, err
 			}
 			itemPath := item.Path
@@ -234,7 +231,7 @@ func (g *gitHub) ListTree(ctx context.Context, snapshot Snapshot, requireComplet
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-	if err := checkContext(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
 	return entries, true, nil
@@ -301,7 +298,7 @@ func (g *gitHub) SearchCandidates(ctx context.Context, snapshot Snapshot, litera
 			return nil, err
 		}
 		for _, item := range response.Items {
-			if err := checkContext(ctx); err != nil {
+			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 			if err := budget.add(item.Path); err != nil {
@@ -339,7 +336,7 @@ type gitHubTreeItem struct {
 func githubEntriesContext(ctx context.Context, items []gitHubTreeItem, prefix string, budget *collectionBudget) ([]Entry, error) {
 	entries := make([]Entry, 0, len(items))
 	for _, item := range items {
-		if err := checkContext(ctx); err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		itemPath := item.Path
@@ -355,7 +352,7 @@ func githubEntriesContext(ctx context.Context, items []gitHubTreeItem, prefix st
 		entries = append(entries, Entry{Path: itemPath, OID: item.SHA, Mode: item.Mode, Size: item.Size})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-	if err := checkContext(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return entries, nil
@@ -364,13 +361,13 @@ func githubEntriesContext(ctx context.Context, items []gitHubTreeItem, prefix st
 func sortedKeysContext(ctx context.Context, values map[string]struct{}) ([]string, error) {
 	result := make([]string, 0, len(values))
 	for value := range values {
-		if err := checkContext(ctx); err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		result = append(result, value)
 	}
 	sort.Strings(result)
-	if err := checkContext(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return result, nil

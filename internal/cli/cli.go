@@ -68,7 +68,8 @@ func RunVersion(args []string, stdout, stderr io.Writer, version string) int {
 	return runSearch(args, stdout, stderr, version)
 }
 
-func runSearch(args []string, stdout, stderr io.Writer, version string) int {
+func runSearch(args []string, stdout, stderr io.Writer, version string) (exitCode int) {
+	started := time.Now()
 	providerErrorCode := func(fallback string, err error) string {
 		var budgetErr *provider.RequestBudgetError
 		if errors.As(err, &budgetErr) {
@@ -131,7 +132,13 @@ func runSearch(args []string, stdout, stderr io.Writer, version string) int {
 	if formatValue == "text" {
 		outputFormat = "text"
 	}
-	renderer := output.New(outputFormat, stdout, stderr)
+	renderer := output.NewBuffered(outputFormat, stdout, stderr)
+	defer func() {
+		if err := renderer.Close(); err != nil && exitCode != 2 {
+			fmt.Fprintf(stderr, "git-rg: write_output: %v\n", err)
+			exitCode = 2
+		}
+	}()
 	emitError := func(code string, err error) {
 		_ = renderer.Emit(search.Event{Type: "error", Code: code, Message: err.Error()})
 	}
@@ -231,7 +238,7 @@ func runSearch(args []string, stdout, stderr io.Writer, version string) int {
 		objectCache = cache.Disabled()
 		_ = renderer.Emit(search.Event{Type: "warning", Code: "cache_disabled", Message: cacheErr.Error()})
 	}
-	if pruneErr := objectCache.PruneContext(ctx); pruneErr != nil {
+	if pruneErr := objectCache.PruneIfNeededContext(ctx); pruneErr != nil {
 		_ = renderer.Emit(search.Event{Type: "warning", Code: "cache_prune_failed", Message: pruneErr.Error()})
 	}
 	runner := &search.Runner{
@@ -248,13 +255,18 @@ func runSearch(args []string, stdout, stderr io.Writer, version string) int {
 	}
 	summary, runErr := runner.Run(ctx, snapshot, renderer.Emit)
 	if ctx.Err() == nil {
-		if pruneErr := objectCache.PruneContext(ctx); pruneErr != nil {
+		if pruneErr := objectCache.PruneIfNeededContext(ctx); pruneErr != nil {
 			_ = renderer.Emit(search.Event{Type: "warning", Code: "cache_prune_failed", Message: pruneErr.Error()})
 		}
 	}
 	if runErr != nil {
 		emitError(search.ErrorCode(runErr), errors.New(search.ErrorMessage(runErr)))
 	}
+	if err := renderer.Flush(); err != nil {
+		fmt.Fprintf(stderr, "git-rg: write_output: %v\n", err)
+		return 2
+	}
+	summary.DurationMS = time.Since(started).Milliseconds()
 	if err := renderer.Emit(search.NewSummaryEvent(summary)); err != nil {
 		fmt.Fprintf(stderr, "git-rg: write_output: %v\n", err)
 		return 2

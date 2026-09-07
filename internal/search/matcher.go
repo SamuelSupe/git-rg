@@ -2,12 +2,13 @@ package search
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"regexp"
-	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -20,6 +21,8 @@ var errInvalidUTF8 = errors.New("content is not valid UTF-8")
 var errLineTooLong = errors.New("line exceeds maximum size")
 var errContextWindowTooLarge = errors.New("before-context window exceeds maximum size")
 var errSubmatchLimit = errors.New("line exceeds maximum submatch count")
+
+var matcherReaders = sync.Pool{New: func() any { return bufio.NewReaderSize(nil, 64<<10) }}
 
 type MatcherConfig struct {
 	Pattern    string
@@ -76,10 +79,6 @@ func (m *Matcher) Scan(filePath string, reader io.Reader, maxMatches int) (FileR
 	return result, err
 }
 
-func (m *Matcher) ScanEmit(filePath string, reader io.Reader, maxMatches int, emit func(Event) error) (FileResult, error) {
-	return m.ScanEmitContext(context.Background(), filePath, reader, maxMatches, emit)
-}
-
 func (m *Matcher) ScanEmitContext(ctx context.Context, filePath string, reader io.Reader, maxMatches int, emit func(Event) error) (FileResult, error) {
 	type bufferedLine struct {
 		number int
@@ -87,7 +86,12 @@ func (m *Matcher) ScanEmitContext(ctx context.Context, filePath string, reader i
 	}
 
 	result := FileResult{}
-	input := bufio.NewReaderSize(reader, 64<<10)
+	input := matcherReaders.Get().(*bufio.Reader)
+	input.Reset(reader)
+	defer func() {
+		input.Reset(nil)
+		matcherReaders.Put(input)
+	}()
 	before := make([]bufferedLine, 0, min(m.before, 1024))
 	beforeBytes := 0
 	lineNumber := 0
@@ -112,19 +116,23 @@ func (m *Matcher) ScanEmitContext(ctx context.Context, filePath string, reader i
 			return FileResult{}, fmt.Errorf("read %q: %w", filePath, readErr)
 		}
 		lineNumber++
-		line := strings.TrimSuffix(strings.TrimSuffix(string(lineBytes), "\n"), "\r")
-		if !utf8.ValidString(line) {
+		lineBytes = bytes.TrimSuffix(bytes.TrimSuffix(lineBytes, []byte{'\n'}), []byte{'\r'})
+		if !utf8.Valid(lineBytes) {
 			return FileResult{}, fmt.Errorf("read %q: %w", filePath, errInvalidUTF8)
 		}
 		if err := ctx.Err(); err != nil {
 			return FileResult{}, err
 		}
-		matches, matchErr := m.find(line)
+		matches, matchErr := m.find(lineBytes)
 		if matchErr != nil {
 			return FileResult{}, fmt.Errorf("match %q: %w", filePath, matchErr)
 		}
 		if err := ctx.Err(); err != nil {
 			return FileResult{}, err
+		}
+		var line string
+		if len(matches) > 0 || m.before > 0 || afterRemaining > 0 {
+			line = string(lineBytes)
 		}
 		if len(matches) > 0 {
 			for _, previous := range before {
@@ -194,7 +202,11 @@ func readBoundedLine(reader *bufio.Reader) ([]byte, error) {
 		if len(line)+len(fragment) > maxLineBytes+2 {
 			return nil, fmt.Errorf("%w (%d bytes)", errLineTooLong, maxLineBytes)
 		}
-		line = append(line, fragment...)
+		if line == nil && !errors.Is(err, bufio.ErrBufferFull) {
+			line = fragment
+		} else {
+			line = append(line, fragment...)
+		}
 		if errors.Is(err, bufio.ErrBufferFull) {
 			continue
 		}
@@ -212,8 +224,8 @@ func readBoundedLine(reader *bufio.Reader) ([]byte, error) {
 	}
 }
 
-func (m *Matcher) find(line string) ([][]int, error) {
-	matches := m.regexp.FindAllStringIndex(line, maxSubmatchesPerLine+1)
+func (m *Matcher) find(line []byte) ([][]int, error) {
+	matches := m.regexp.FindAllIndex(line, maxSubmatchesPerLine+1)
 	if len(matches) > maxSubmatchesPerLine {
 		return nil, fmt.Errorf("%w (%d)", errSubmatchLimit, maxSubmatchesPerLine)
 	}
@@ -223,13 +235,13 @@ func (m *Matcher) find(line string) ([][]int, error) {
 	filtered := matches[:0]
 	for _, match := range matches {
 		if match[0] > 0 {
-			previous, _ := utf8.DecodeLastRuneInString(line[:match[0]])
+			previous, _ := utf8.DecodeLastRune(line[:match[0]])
 			if isWordRune(previous) {
 				continue
 			}
 		}
 		if match[1] < len(line) {
-			next, _ := utf8.DecodeRuneInString(line[match[1]:])
+			next, _ := utf8.DecodeRune(line[match[1]:])
 			if isWordRune(next) {
 				continue
 			}

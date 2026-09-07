@@ -5,12 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"time"
 )
-
-func New(repository Repository, timeout time.Duration) (Provider, error) {
-	return NewWithOptions(repository, Options{Timeout: timeout})
-}
 
 func NewWithOptions(repository Repository, options Options) (Provider, error) {
 	token := tokenFor(repository)

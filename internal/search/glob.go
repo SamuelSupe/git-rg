@@ -13,8 +13,10 @@ type GlobSet struct {
 
 type globPattern struct {
 	pattern  string
+	segments []string
 	negative bool
 	basename bool
+	literal  bool
 }
 
 func CompileGlobs(patterns []string) (*GlobSet, error) {
@@ -30,7 +32,8 @@ func CompileGlobs(patterns []string) (*GlobSet, error) {
 		if raw == "" {
 			return nil, fmt.Errorf("glob pattern is empty")
 		}
-		for _, segment := range strings.Split(raw, "/") {
+		segments := strings.Split(raw, "/")
+		for _, segment := range segments {
 			if segment == "**" {
 				continue
 			}
@@ -38,27 +41,48 @@ func CompileGlobs(patterns []string) (*GlobSet, error) {
 				return nil, fmt.Errorf("invalid glob %q: %w", raw, err)
 			}
 		}
-		set.patterns = append(set.patterns, globPattern{pattern: raw, negative: negative, basename: !strings.Contains(raw, "/")})
+		set.patterns = append(set.patterns, globPattern{
+			pattern: raw, segments: segments, negative: negative,
+			basename: len(segments) == 1, literal: !strings.ContainsAny(raw, "*?[\\"),
+		})
 	}
 	return set, nil
 }
 
 func (g *GlobSet) Match(filePath string) bool {
 	allowed := !g.hasPositive
+	// Keep scratch local so a compiled set remains safe for concurrent scans.
+	var storage [16]string
+	var segments []string
 	for _, pattern := range g.patterns {
 		candidate := filePath
 		if pattern.basename {
 			candidate = path.Base(filePath)
 		}
-		if matchGlob(pattern.pattern, candidate) {
+		var matched bool
+		switch {
+		case pattern.literal:
+			matched = pattern.pattern == candidate
+		case pattern.basename:
+			if pattern.pattern == "**" {
+				matched = true
+			} else {
+				matched, _ = path.Match(pattern.pattern, candidate)
+			}
+		default:
+			if segments == nil {
+				segments = storage[:0]
+				for segment := range strings.SplitSeq(filePath, "/") {
+					segments = append(segments, segment)
+				}
+			}
+			matched = matchSegments(pattern.segments, segments)
+		}
+		if matched {
 			allowed = !pattern.negative
 		}
 	}
 	return allowed
-}
-
-func matchGlob(pattern, value string) bool {
-	return matchSegments(strings.Split(pattern, "/"), strings.Split(value, "/"))
 }
 
 func matchSegments(pattern, value []string) bool {

@@ -4,8 +4,12 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"path"
 	"strings"
@@ -53,17 +57,10 @@ func (w *bestEffortCacheWriter) Write(data []byte) (int, error) {
 	return written, nil
 }
 
-func (r *Runner) scanArchive(ctx context.Context, snapshot provider.Snapshot, globs *GlobSet, skip map[string]struct{}, summary *Summary, matchedFiles map[string]struct{}, emit Emitter) (bool, error) {
+func (r *Runner) scanArchive(ctx context.Context, snapshot provider.Snapshot, remaining map[string]provider.Entry, archive io.ReadCloser, summary *Summary, matchedFiles map[string]struct{}, emit Emitter) (bool, error) {
 	key := cache.Key(snapshot.Repository.CacheNamespace(), "archive", snapshot.Commit)
-	archive, cacheHit, err := r.Cache.OpenContext(ctx, key)
-	if err != nil {
-		if IsContextError(err) {
-			return true, contextError(ctx)
-		}
-		if emitErr := emit(Event{Type: "warning", Code: "cache_read_failed", Message: err.Error()}); emitErr != nil {
-			return true, &Error{Code: "write_output", Err: emitErr}
-		}
-	}
+	cacheHit := archive != nil
+	var err error
 
 	var gzipReader *gzip.Reader
 	var counter *countingReader
@@ -216,13 +213,12 @@ func (r *Runner) scanArchive(ctx context.Context, snapshot provider.Snapshot, gl
 			return true, &Error{Code: "read_archive", Err: fmt.Errorf("archive contains duplicate path %q", relative)}
 		}
 		seen[relative] = struct{}{}
-		if !globs.Match(relative) {
+		entry, selected := remaining[relative]
+		if !selected {
 			continue
 		}
-		if _, skipped := skip[relative]; skipped {
-			continue
-		}
-		outcome := r.scanReader(ctx, relative, io.LimitReader(tarReader, header.Size), false, 0)
+		outcome := r.scanArchiveEntry(ctx, snapshot, entry, header.Size, tarReader)
+
 		if outcome.err != nil && shouldInvalidateArchive(outcome.err) {
 			if invalidateErr := invalidateCache(); invalidateErr != nil {
 				cleanupOutcome(outcome)
@@ -233,6 +229,7 @@ func (r *Runner) scanArchive(ctx context.Context, snapshot provider.Snapshot, gl
 		if consumeErr != nil || stopped {
 			return true, consumeErr
 		}
+		delete(remaining, relative)
 	}
 	if _, err := io.Copy(io.Discard, expanded); err != nil {
 		if IsContextError(err) || IsResourceLimit(err) {
@@ -268,6 +265,40 @@ func (r *Runner) scanArchive(ctx context.Context, snapshot provider.Snapshot, gl
 		return true, contextError(ctx)
 	}
 	return false, nil
+}
+
+func (r *Runner) scanArchiveEntry(ctx context.Context, snapshot provider.Snapshot, entry provider.Entry, size int64, reader io.Reader) fileOutcome {
+	var digest hash.Hash
+	switch len(entry.OID) {
+	case sha1.Size * 2:
+		digest = sha1.New()
+	case sha256.Size * 2:
+		digest = sha256.New()
+	default:
+		return r.scanEntry(ctx, snapshot, entry)
+	}
+	if entry.Size > 0 && size != entry.Size {
+		return r.scanEntry(ctx, snapshot, entry)
+	}
+	fmt.Fprintf(digest, "blob %d\x00", size)
+	stream := io.TeeReader(&boundedContextReader{
+		ctx: ctx, reader: io.LimitReader(reader, size), remaining: maxScannedFileBytes,
+		limit: maxScannedFileBytes, limitErr: errFileTooLarge,
+	}, digest)
+	outcome := r.scanReader(ctx, entry.Path, stream, false, 0)
+	if outcome.err != nil {
+		return outcome
+	}
+	// Even a truncated result needs an authenticated archive entry before emitting.
+	if _, err := io.Copy(io.Discard, stream); err != nil {
+		cleanupOutcome(outcome)
+		return fileOutcome{err: err}
+	}
+	if hex.EncodeToString(digest.Sum(nil)) != entry.OID {
+		cleanupOutcome(outcome)
+		return r.scanEntry(ctx, snapshot, entry)
+	}
+	return outcome
 }
 
 func archiveRelativePath(name string) (string, bool, error) {
