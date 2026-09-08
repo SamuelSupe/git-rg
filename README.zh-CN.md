@@ -12,15 +12,13 @@
 
 `git-rg` 是一个用 Go 编写的远程代码搜索命令行工具。它会先把分支、tag 或 commit 解析为固定的 commit SHA，再按所选搜索路径从 API 按需读取内容，默认输出适合 agent 消费的 NDJSON。它支持公开、私有以及自建的 GitHub/GitLab 实例；不会创建本地工作树，也不会下载 Git 历史。
 
-<a id="whats-new-in-v040"></a>
-## v0.4.0 更新
+<a id="whats-new-in-v041"></a>
+## v0.4.1 更新
 
-- **复用已有登录**：搜索和 `refs` 默认使用 `--auth auto`，未设置环境变量 token 时，复用目标站点当前的 `gh` 或 `glab` 账号。
-- **保留显式控制**：环境变量 token 的优先级不变；`--auth env` 可恢复仅环境变量的认证方式。
-- **限制凭证读取边界**：检查 HTTPS/API origin，隔离非交互 helper，限制输出大小，并设置 10 秒读取期限。
-- **支持 GitLab PAT 和 OAuth**：通过 `Authorization: Bearer` 发送 access token，OAuth 刷新仍由 glab 管理。
+- **修复 glab 凭证两端空白**：校验前移除已保存 PAT 或 OAuth access token 两端的 ASCII 空格和制表符，让有效登录可正常用于搜索和 `refs`。
+- **保留凭证校验**：仍拒绝内部空白、控制字符、无效 UTF-8、空凭证、CI job token 和冲突的 helper 字段。
 
-升级说明和 glab 兼容边界见 [v0.4.0 发布说明](docs/releases/v0.4.0.md)。本版本改变了默认认证行为；NDJSON schema v1 保持兼容，`refs` 也会输出 `auth_unavailable` warning。
+详见 [v0.4.1 发布说明](docs/releases/v0.4.1.md)。此补丁保持 [v0.4.0](docs/releases/v0.4.0.md) 引入的自动认证行为、环境变量 token 优先级和 NDJSON schema v1。感谢 [@coanor](https://github.com/coanor) 提交 [PR #1](https://github.com/SamuelSupe/git-rg/pull/1)。
 
 ## 安装并运行
 
@@ -28,7 +26,7 @@ Linux/macOS，安装到用户目录：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.4.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.4.1 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -37,7 +35,7 @@ Windows PowerShell：
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.4.0
+& $installer -Version v0.4.1
 git-rg --version
 ```
 
@@ -63,7 +61,7 @@ git-rg refs github:OWNER/REPO
 
 ## 目录
 
-- [v0.4.0 更新](#whats-new-in-v040)
+- [v0.4.1 更新](#whats-new-in-v041)
 - [为什么不需要 clone](#why-no-clone)
 - [安装](#install)
 - [仓库地址](#repository-addresses)
@@ -90,29 +88,29 @@ git-rg refs github:OWNER/REPO
 <a id="install"></a>
 ## 安装
 
-v0.4.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
+v0.4.1 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
 
 ### 预构建平台矩阵
 
 以下六种组合属于 Tier 1，每个 Release 都会提供：
 
-| 操作系统 | 架构 | v0.4.0 资产 | 支持级别 |
+| 操作系统 | 架构 | v0.4.1 资产 | 支持级别 |
 | --- | --- | --- | --- |
-| Linux | amd64（x86_64） | `git-rg_v0.4.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.4.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64（x86_64） | `git-rg_v0.4.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.4.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64（x86_64） | `git-rg_v0.4.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.4.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64（x86_64） | `git-rg_v0.4.1_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.4.1_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64（x86_64） | `git-rg_v0.4.1_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.4.1_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64（x86_64） | `git-rg_v0.4.1_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.4.1_windows_arm64.zip` | Tier 1 |
 
-每个 archive 包含一个顶层版本目录和一个可执行文件。v0.4.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
+每个 archive 包含一个顶层版本目录和一个可执行文件。v0.4.1 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
 
 ### GitHub Release（手工下载）
 
-从 [v0.4.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.4.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
+从 [v0.4.1 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.4.1) 下载匹配的资产和 `checksums.txt`，解压前先校验：
 
 ```sh
-version=v0.4.0
+version=v0.4.1
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -130,7 +128,7 @@ macOS 如果没有 `sha256sum`，可改用 `shasum -a 256`；按机器选择 `da
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.4.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.4.1 --bin-dir "$HOME/.local/bin"
 ```
 
 使用 `--version VERSION` 固定版本；省略时使用 latest。使用 `--bin-dir DIRECTORY` 指定安装目录。需要可审阅的安装过程时，先下载并检查脚本，再执行它。完整参数和失败处置见 [docs/installation.md](docs/installation.md)。
@@ -142,7 +140,7 @@ curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.4.0
+& $installer -Version v0.4.1
 git-rg --version
 ```
 
@@ -179,7 +177,7 @@ scoop uninstall git-rg
 
 ```sh
 # 固定到当前支持版本。
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.4.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.4.1
 
 # 或跟随最新模块版本。
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest

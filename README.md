@@ -12,14 +12,12 @@
 
 `git-rg` is a small Go command-line tool for remote code search. It resolves a branch, tag, or commit to a fixed commit SHA, reads only the API content needed for the selected search path, and emits agent-friendly NDJSON by default. It supports public, private, and self-managed GitHub/GitLab instances; it does not create a local checkout or download Git history.
 
-## What's new in v0.4.0
+## What's new in v0.4.1
 
-- **Reuse existing logins:** search and `refs` default to `--auth auto`, using the current `gh` or `glab` account for the target host when no environment token is set.
-- **Keep explicit control:** environment tokens retain their existing priority; `--auth env` restores environment-only authentication.
-- **Bound credential lookup:** HTTPS/API origin checks, isolated non-interactive helpers, bounded output, and a 10-second deadline protect the authentication boundary.
-- **Support GitLab PAT and OAuth:** send access tokens with `Authorization: Bearer`; OAuth refresh remains managed by glab.
+- **Fix glab credential padding:** leading and trailing ASCII spaces or tabs around a stored PAT or OAuth access token are removed before validation, so a valid login can authenticate search and `refs`.
+- **Keep credential validation:** embedded whitespace, control bytes, invalid UTF-8, empty credentials, CI job tokens, and conflicting helper fields remain rejected.
 
-See the [v0.4.0 release notes](docs/releases/v0.4.0.md) for upgrade details and glab compatibility limits. The default authentication behavior changes in this release; NDJSON schema v1 remains compatible, with `auth_unavailable` warnings also emitted by `refs`.
+See the [v0.4.1 release notes](docs/releases/v0.4.1.md). This patch preserves the automatic authentication behavior introduced in [v0.4.0](docs/releases/v0.4.0.md), environment-token priority, and NDJSON schema v1. Thanks to [@coanor](https://github.com/coanor) for [PR #1](https://github.com/SamuelSupe/git-rg/pull/1).
 
 ## Install and run
 
@@ -27,7 +25,7 @@ Linux/macOS, installed to a user-owned directory:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.4.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.4.1 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -36,7 +34,7 @@ Windows PowerShell:
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.4.0
+& $installer -Version v0.4.1
 git-rg --version
 ```
 
@@ -62,7 +60,7 @@ git-rg refs github:OWNER/REPO
 
 ## Contents
 
-- [What's new in v0.4.0](#whats-new-in-v040)
+- [What's new in v0.4.1](#whats-new-in-v041)
 - [Why no clone](#why-no-clone)
 - [Install](#install)
 - [Repository addresses](#repository-addresses)
@@ -87,29 +85,29 @@ The current providers are GitHub and GitLab. There is no offline mode, local-pat
 
 ## Install
 
-v0.4.0 is the current supported release. Earlier v0.x releases remain downloadable for reproduction or rollback but are EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
+v0.4.1 is the current supported release. Earlier v0.x releases remain downloadable for reproduction or rollback but are EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
 
 ### Pre-built platform matrix
 
 The six combinations below are Tier 1 and are shipped for every release:
 
-| Operating system | Architecture | v0.4.0 asset | Support |
+| Operating system | Architecture | v0.4.1 asset | Support |
 | --- | --- | --- | --- |
-| Linux | amd64 (x86_64) | `git-rg_v0.4.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.4.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64 (x86_64) | `git-rg_v0.4.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.4.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64 (x86_64) | `git-rg_v0.4.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.4.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64 (x86_64) | `git-rg_v0.4.1_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.4.1_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64 (x86_64) | `git-rg_v0.4.1_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.4.1_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64 (x86_64) | `git-rg_v0.4.1_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.4.1_windows_arm64.zip` | Tier 1 |
 
-Each archive contains one top-level version directory and one executable. The v0.4.0 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
+Each archive contains one top-level version directory and one executable. The v0.4.1 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
 
 ### GitHub Release (manual)
 
-Download the matching asset from the [v0.4.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.4.0), download `checksums.txt`, and verify before extracting:
+Download the matching asset from the [v0.4.1 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.4.1), download `checksums.txt`, and verify before extracting:
 
 ```sh
-version=v0.4.0
+version=v0.4.1
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -127,7 +125,7 @@ The script supports amd64 and arm64, defaults to `$HOME/.local/bin`, and does no
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.4.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.4.1 --bin-dir "$HOME/.local/bin"
 ```
 
 Use `--version VERSION` for a fixed release or omit it for the latest release. Use `--bin-dir DIRECTORY` to select the destination. For a reviewable installation, download the script first, inspect it, and then run it. The complete option list and failure handling are in [docs/installation.md](docs/installation.md).
@@ -139,7 +137,7 @@ The script supports Windows amd64 and arm64. It defaults to `%LOCALAPPDATA%\Prog
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.4.0
+& $installer -Version v0.4.1
 git-rg --version
 ```
 
@@ -176,7 +174,7 @@ With Go 1.26 or newer:
 
 ```sh
 # Pin the supported release.
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.4.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.4.1
 
 # Or follow the latest module version.
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
