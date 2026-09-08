@@ -170,7 +170,10 @@ func parseGitLabCredential(raw, host string) (string, error) {
 			fields[key] = value
 		}
 	}
-	if fields["username"] == "" || fields["username"] == "gitlab-ci-token" || !validCredentialToken(fields["password"]) {
+	// glab can preserve spaces or tabs pasted around a stored token. Normalize
+	// that padding while still rejecting embedded whitespace and control bytes.
+	token := strings.Trim(fields["password"], " \t")
+	if fields["username"] == "" || fields["username"] == "gitlab-ci-token" || !validCredentialToken(token) {
 		return "", errors.New("unsupported credential")
 	}
 	if protocol, ok := fields["protocol"]; ok && protocol != "https" {
@@ -179,5 +182,5 @@ func parseGitLabCredential(raw, host string) (string, error) {
 	if returnedHost, ok := fields["host"]; ok && returnedHost != host {
 		return "", errors.New("credential host mismatch")
 	}
-	return fields["password"], nil
+	return token, nil
 }

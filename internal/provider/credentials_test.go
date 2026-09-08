@@ -190,6 +190,49 @@ func TestResolveCredentialsRejectsGitLabJobToken(t *testing.T) {
 	}
 }
 
+func TestResolveCredentialsGitLabPasswordPadding(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		want     string
+	}{
+		{name: "trailing space", password: "glpat-example ", want: "glpat-example"},
+		{name: "horizontal padding", password: " \tglpat-example\t ", want: "glpat-example"},
+		{name: "OAuth padding", password: "oauth-example ", want: "oauth-example"},
+		{name: "only padding", password: " \t "},
+		{name: "internal space", password: "glpat-ex ample "},
+		{name: "internal tab", password: "glpat-ex\tample "},
+		{name: "control character", password: "glpat-example\x00 "},
+		{name: "invalid UTF-8", password: "glpat-example\xff "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearCredentialEnvironment(t)
+			repo := credentialRepository("gitlab", "gitlab.example.test", "https://gitlab.example.test/api/v4", "group/project")
+			runner := &credentialRunner{responses: []credentialRunResponse{
+				{}, // glab auth status succeeds before requesting the credential.
+				{output: "capability[]=authtype\r\nusername=test-user\r\npassword=" + tt.password + "\r\n\r\n"},
+			}}
+			token, warning, err := resolveCredentials(context.Background(), repo, "auto", credentialHelperLookup(t.TempDir()), runner.run)
+			if err != nil {
+				t.Fatalf("resolveCredentials() error = %v", err)
+			}
+			if token != tt.want {
+				t.Fatalf("token = %q, want %q", token, tt.want)
+			}
+			if (warning != "") != (tt.want == "") {
+				t.Fatalf("warning = %q, want warning only for invalid credentials", warning)
+			}
+			if strings.Contains(warning, "glpat-") || strings.Contains(warning, "oauth-example") {
+				t.Fatalf("warning leaked credential: %q", warning)
+			}
+			if len(runner.calls) != 2 {
+				t.Fatalf("helper call count = %d, want status and credential calls", len(runner.calls))
+			}
+		})
+	}
+}
+
 func TestResolveCredentialsMissingHelperIsSilent(t *testing.T) {
 	clearCredentialEnvironment(t)
 	repo := credentialRepository("github", "github.com", "https://api.github.com", "octocat/Hello-World")
