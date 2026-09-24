@@ -14,6 +14,37 @@ import (
 	"time"
 )
 
+func TestWriteClientRequiresOptInAndNeverReplaysPOST(t *testing.T) {
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Location", "/redirected")
+				w.WriteHeader(status)
+				io.WriteString(w, `{"message":"write-token"}`)
+			}))
+			defer server.Close()
+			var response any
+			disabled := newClient(Options{}, setGitHubHeaders("write-token"), "write-token")
+			if err := disabled.postJSON(context.Background(), server.URL, map[string]string{"content": "private code"}, &response); !errors.Is(err, ErrWriteDisabled) {
+				t.Fatalf("default client write error = %v", err)
+			}
+			if requests.Load() != 0 {
+				t.Fatal("disabled write reached server")
+			}
+			enabled := newClient(Options{EnableWrite: true}, setGitHubHeaders("write-token"), "write-token")
+			err := enabled.postJSON(context.Background(), server.URL, map[string]string{"content": "private code"}, &response)
+			if err == nil || strings.Contains(err.Error(), "write-token") {
+				t.Fatalf("write error = %v", err)
+			}
+			if requests.Load() != 1 || enabled.stats().Retries != 0 {
+				t.Fatalf("POST was replayed: requests=%d stats=%+v", requests.Load(), enabled.stats())
+			}
+		})
+	}
+}
+
 func TestClientRequestBudgetCountsRetries(t *testing.T) {
 	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

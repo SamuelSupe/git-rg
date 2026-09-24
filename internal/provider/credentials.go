@@ -16,6 +16,15 @@ import (
 
 const credentialTimeout = 10 * time.Second
 
+// WriteCredentials requires an explicit identity separate from search credentials.
+func WriteCredentials() (string, error) {
+	token := os.Getenv("GITRG_WRITE_TOKEN")
+	if !validCredentialToken(token) {
+		return "", errors.New("set GITRG_WRITE_TOKEN to a valid token with repository and PR/MR write permissions")
+	}
+	return token, nil
+}
+
 // ResolveCredentials preserves environment overrides and optionally reuses the
 // target host's CLI login. Helper failures return a warning and no credential;
 // cancellation of the caller's context remains fatal.

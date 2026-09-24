@@ -42,14 +42,15 @@ func (g *gitLab) Resolve(ctx context.Context, repo Repository, requestedRef stri
 		resolvedRef = projectResponse.DefaultBranch
 	}
 	var commitResponse struct {
-		ID             string `json:"id"`
-		AuthorName     string `json:"author_name"`
-		AuthorEmail    string `json:"author_email"`
-		AuthoredDate   string `json:"authored_date"`
-		CommitterName  string `json:"committer_name"`
-		CommitterEmail string `json:"committer_email"`
-		CommittedDate  string `json:"committed_date"`
-		Message        string `json:"message"`
+		ID             string   `json:"id"`
+		Parents        []string `json:"parent_ids"`
+		AuthorName     string   `json:"author_name"`
+		AuthorEmail    string   `json:"author_email"`
+		AuthoredDate   string   `json:"authored_date"`
+		CommitterName  string   `json:"committer_name"`
+		CommitterEmail string   `json:"committer_email"`
+		CommittedDate  string   `json:"committed_date"`
+		Message        string   `json:"message"`
 	}
 	commitEndpoint := repo.APIBase + "/projects/" + strconv.Itoa(projectResponse.ID) + "/repository/commits/" + url.PathEscape(resolvedRef)
 	if _, err := g.client.getJSON(ctx, commitEndpoint, &commitResponse); err != nil {
@@ -63,6 +64,7 @@ func (g *gitLab) Resolve(ctx context.Context, repo Repository, requestedRef stri
 		RequestedRef: requestedRef,
 		ResolvedRef:  resolvedRef,
 		Commit:       commitResponse.ID,
+		Parents:      commitResponse.Parents,
 		CommitInfo: &CommitInfo{
 			Author: CommitPerson{
 				Name:  commitResponse.AuthorName,
@@ -164,6 +166,15 @@ func (g *gitLab) listRefs(ctx context.Context, endpoint string, kind RefKind, bu
 }
 
 func (g *gitLab) ListTree(ctx context.Context, snapshot Snapshot, requireComplete bool) ([]Entry, bool, error) {
+	return g.listTree(ctx, snapshot, requireComplete, false)
+}
+
+func (g *gitLab) ListChangeTree(ctx context.Context, snapshot Snapshot) ([]Entry, error) {
+	entries, _, err := g.listTree(ctx, snapshot, true, true)
+	return entries, err
+}
+
+func (g *gitLab) listTree(ctx context.Context, snapshot Snapshot, requireComplete, allEntries bool) ([]Entry, bool, error) {
 	entries := make([]Entry, 0)
 	budget := newCollectionBudget("GitLab tree", maxTreeItems, maxTreeMetadataBytes)
 	pages := newPaginationBudget("GitLab tree")
@@ -196,7 +207,7 @@ func (g *gitLab) ListTree(ctx context.Context, snapshot Snapshot, requireComplet
 			if err := budget.add(item.Path, item.ID, item.Type, item.Mode); err != nil {
 				return nil, false, err
 			}
-			if item.Type == "blob" && (item.Mode == "100644" || item.Mode == "100755") {
+			if item.Type != "tree" && (allEntries || item.Type == "blob" && (item.Mode == "100644" || item.Mode == "100755")) {
 				entries = append(entries, Entry{Path: item.Path, OID: item.ID, Mode: item.Mode})
 			}
 		}

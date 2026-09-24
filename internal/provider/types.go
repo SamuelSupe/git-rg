@@ -54,6 +54,7 @@ type Snapshot struct {
 	RequestedRef  string
 	ResolvedRef   string
 	Commit        string
+	Parents       []string
 	CommitInfo    *CommitInfo
 	TreeOID       string
 	DefaultBranch string
@@ -86,6 +87,7 @@ type Options struct {
 	Token        string
 	Timeout      time.Duration
 	RequestLimit int
+	EnableWrite  bool
 }
 
 type RequestBudgetError struct {

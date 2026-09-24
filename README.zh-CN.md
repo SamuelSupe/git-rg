@@ -12,13 +12,32 @@
 
 `git-rg` 是一个用 Go 编写的远程代码搜索命令行工具。它会先把分支、tag 或 commit 解析为固定的 commit SHA，再按所选搜索路径从 API 按需读取内容，默认输出适合 agent 消费的 NDJSON。它支持公开、私有以及自建的 GitHub/GitLab 实例；不会创建本地工作树，也不会下载 Git 历史。
 
-<a id="whats-new-in-v041"></a>
-## v0.4.1 更新
+**v0.5.0 新增：agent 修改代码并创建草稿 PR/MR，写入默认关闭。** agent 生成 JSON 变更计划，`git-rg` 校验原始文件、预览 diff，并通过平台 API 提交到新分支。详见[使用说明与变更格式](docs/agent-changes.md)。
 
-- **修复 glab 凭证两端空白**：校验前移除已保存 PAT 或 OAuth access token 两端的 ASCII 空格和制表符，让有效登录可正常用于搜索和 `refs`。
-- **保留凭证校验**：仍拒绝内部空白、控制字符、无效 UTF-8、空凭证、CI job token 和冲突的 helper 字段。
+```sh
+# 只读：返回完整文件、固定 commit SHA 和 blob SHA。
+git-rg read --ref main github:OWNER/REPO path/to/file.go
 
-详见 [v0.4.1 发布说明](docs/releases/v0.4.1.md)。此补丁保持 [v0.4.0](docs/releases/v0.4.0.md) 引入的自动认证行为、环境变量 token 优先级和 NDJSON schema v1。感谢 [@coanor](https://github.com/coanor) 提交 [PR #1](https://github.com/SamuelSupe/git-rg/pull/1)。
+# 只读预览，changes.json 由 agent 根据读取结果生成。
+git-rg propose --dry-run --changes changes.json github:OWNER/REPO
+
+# 每次写入都必须显式启用，并单独提供 GITRG_WRITE_TOKEN。
+git-rg propose --enable-write --changes changes.json github:OWNER/REPO
+```
+
+GitLab 使用 `gitlab:GROUP/PROJECT`，相同命令会创建草稿 MR。普通搜索、`refs`、`read` 和 `--dry-run` 使用原有读取凭证，不读取 `GITRG_WRITE_TOKEN`。仅设置 token 不会打开写入能力；即使同时传入 `--enable-write`，`--dry-run` 仍然只读。创建结果会返回分支、commit、PR/MR 链接和 `result.complete`，编译、测试与 CI 状态需要另行验证。
+
+可选参数 `--agent-name`、`--agent-model`、`--agent-run-id` 会把 Agent 自报的身份信息附加到 PR/MR 描述。平台作者仍是凭证对应的账号。JSON 输入格式和重试规则见 [Agent 身份说明](docs/agent-changes.md#agent-identity)。
+
+<a id="whats-new-in-v050"></a>
+## v0.5.0 更新
+
+- **不 clone 即可读取和提交变更**：读取完整文本及固定 commit/blob SHA，预览 JSON 变更计划，并在新分支上创建草稿 GitHub PR 或 GitLab MR。
+- **写入默认关闭**：每次发布都要求 `--enable-write` 和独立的 `GITRG_WRITE_TOKEN`；预览使用读取凭证，不覆盖冲突分支。
+- **Agent 身份与失败恢复**：在描述中附加名称、模型和运行 ID；相同计划及身份可恢复未完成的发布。
+- **边界修复**：GitLab 目录替换为文件时先删除子文件，stdin 读取遵守整体超时，Unicode 文件名生成兼容 Git 的 diff。
+
+详见 [v0.5.0 发布说明](docs/releases/v0.5.0.md)。已有搜索、ref 查询及 NDJSON schema v1 保持兼容，只读用户无需迁移。
 
 ## 安装并运行
 
@@ -26,7 +45,7 @@ Linux/macOS，安装到用户目录：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.4.1 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.5.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -35,7 +54,7 @@ Windows PowerShell：
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.4.1
+& $installer -Version v0.5.0
 git-rg --version
 ```
 
@@ -61,7 +80,7 @@ git-rg refs github:OWNER/REPO
 
 ## 目录
 
-- [v0.4.1 更新](#whats-new-in-v041)
+- [v0.5.0 更新](#whats-new-in-v050)
 - [为什么不需要 clone](#why-no-clone)
 - [安装](#install)
 - [仓库地址](#repository-addresses)
@@ -83,34 +102,34 @@ git-rg refs github:OWNER/REPO
 - `exact` 仍可能读取所选 commit 中所有符合条件的普通文本文件。“不 clone”省去工作树和历史传输，并不表示完整搜索不读取仓库内容或不需要网络。
 - SSH 风格的 clone URL 只用于解析地址。`git-rg` 不使用 SSH 认证，也不使用 Git 传输。
 
-当前 provider 只有 GitHub 和 GitLab。不提供离线模式、本地路径搜索、写操作、历史搜索或通用 Git 服务器协议。预构建二进制通过 GitHub Releases 发布。
+当前 provider 只有 GitHub 和 GitLab。不提供离线模式、本地路径搜索、历史搜索或通用 Git 服务器协议。搜索和 ref 查询保持只读；写操作仅通过显式启用的 `propose` 命令提供。预构建二进制通过 GitHub Releases 发布。
 
 <a id="install"></a>
 ## 安装
 
-v0.4.1 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
+v0.5.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
 
 ### 预构建平台矩阵
 
 以下六种组合属于 Tier 1，每个 Release 都会提供：
 
-| 操作系统 | 架构 | v0.4.1 资产 | 支持级别 |
+| 操作系统 | 架构 | v0.5.0 资产 | 支持级别 |
 | --- | --- | --- | --- |
-| Linux | amd64（x86_64） | `git-rg_v0.4.1_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.4.1_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64（x86_64） | `git-rg_v0.4.1_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.4.1_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64（x86_64） | `git-rg_v0.4.1_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.4.1_windows_arm64.zip` | Tier 1 |
+| Linux | amd64（x86_64） | `git-rg_v0.5.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.5.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64（x86_64） | `git-rg_v0.5.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.5.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64（x86_64） | `git-rg_v0.5.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.5.0_windows_arm64.zip` | Tier 1 |
 
-每个 archive 包含一个顶层版本目录和一个可执行文件。v0.4.1 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
+每个 archive 包含一个顶层版本目录和一个可执行文件。v0.5.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
 
 ### GitHub Release（手工下载）
 
-从 [v0.4.1 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.4.1) 下载匹配的资产和 `checksums.txt`，解压前先校验：
+从 [v0.5.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.5.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
 
 ```sh
-version=v0.4.1
+version=v0.5.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -128,7 +147,7 @@ macOS 如果没有 `sha256sum`，可改用 `shasum -a 256`；按机器选择 `da
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.4.1 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.5.0 --bin-dir "$HOME/.local/bin"
 ```
 
 使用 `--version VERSION` 固定版本；省略时使用 latest。使用 `--bin-dir DIRECTORY` 指定安装目录。需要可审阅的安装过程时，先下载并检查脚本，再执行它。完整参数和失败处置见 [docs/installation.md](docs/installation.md)。
@@ -140,7 +159,7 @@ curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.4.1
+& $installer -Version v0.5.0
 git-rg --version
 ```
 
@@ -177,7 +196,7 @@ scoop uninstall git-rg
 
 ```sh
 # 固定到当前支持版本。
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.4.1
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.5.0
 
 # 或跟随最新模块版本。
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -358,6 +377,8 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 <a id="exit-codes"></a>
 ## 退出码
 
+下面说明搜索退出码。`refs`、`read` 和 `propose` 成功返回 `0`，失败返回 `2`；提案结果语义见[变更提案文档](docs/agent-changes.md#results-and-recovery)。
+
 - `0`：找到至少一行匹配且命令没有失败。结果上限截断和 `complete=false` 的 indexed 结果也可能返回 `0`。
 - `1`：命令完成但没有找到匹配行。对 indexed 来说，这只表示 provider 候选集中没有匹配。
 - `2`：参数、pattern、glob、仓库、provider、API、输出、超时/取消、资源上限或请求预算失败；indexed pattern 没有字面前缀、或 indexed 请求失败也返回 `2`。
@@ -367,7 +388,7 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 <a id="permissions--credential-best-practices"></a>
 ## Permissions & credential best practices / 权限与凭证最佳实践
 
-`git-rg` 在 `Authorization: Bearer` 请求头中发送凭证。请使用能够读取目标仓库及其元数据的最小只读身份。
+`git-rg` 在 `Authorization: Bearer` 请求头中发送凭证。以下配置适用于读取命令，请使用能够读取目标仓库及其元数据的最小只读身份。可选的 `propose --enable-write` 使用独立的 `GITRG_WRITE_TOKEN`，权限要求见[写入文档](docs/agent-changes.md#credentials)。
 
 ### 自动复用 CLI 凭证
 
@@ -400,7 +421,7 @@ CLI 未安装时静默匿名访问。未登录、读取失败、超时或输出�
 ### GitLab
 
 - 优先使用 project/group access token，或受限 PAT，授予文档中的 `read_api` scope，并确保账号/机器人具备读取该项目的权限。参阅 GitLab 的[访问 token scope](https://docs.gitlab.com/security/tokens/access_token_scopes/)和[Repository Files API](https://docs.gitlab.com/api/repository_files/)。
-- 不要为这个只读搜索工具授予 `api` 或 `write_repository`。不要把 `read_repository` 单独当作覆盖所有 project metadata、ref、tree、search、archive 和 raw-file API 的保证；可用 scope 还取决于 GitLab 版本和实例策略。
+- 不要为读取命令使用的凭证授予 `api` 或 `write_repository`。不要把 `read_repository` 单独当作覆盖所有 project metadata、ref、tree、search、archive 和 raw-file API 的保证；可用 scope 还取决于 GitLab 版本和实例策略。
 
 ### Token 读取顺序与处理
 
@@ -452,7 +473,7 @@ CLI 未安装时静默匿名访问。未登录、读取失败、超时或输出�
 
 超过本地或 provider 边界会返回明确的 `resource_limit` error。GitHub Git Blob API 路径拒绝大于 100 MiB 的对象；archive 读取使用独立的压缩、解压和本地文件上限。文件会探测 NUL 和非法 UTF-8；二进制/非法 UTF-8 文件会跳过，如果在暂存匹配之后才发现 NUL，则丢弃该文件的全部暂存 event。达到结果上限后停止匹配，不对后缀作文本/二进制检查承诺；archive 条目仍会在资源限制内读到文件末尾，验证 blob 哈希后才输出结果。
 
-每个 HTTP 请求最多尝试 3 次。客户端尊重可用的 `Retry-After`/限流 reset 延迟，最多允许 5 次重定向，拒绝 HTTPS 降级；HTTPS 跨 host 重定向时会剥离授权请求头。`--max-requests` 统计 ref 解析、索引、tree、archive、blob、重试和重定向请求。
+读取请求最多尝试 3 次。读取客户端尊重可用的 `Retry-After`/限流 reset 延迟，最多允许 5 次重定向，拒绝 HTTPS 降级；HTTPS 跨 host 重定向时会剥离授权请求头。写入请求只发送一次且不跟随重定向；响应不确定时使用[提案恢复流程](docs/agent-changes.md#results-and-recovery)。`--max-requests` 统计全部远端请求，包括重试和重定向。
 
 六个 Tier 1 二进制覆盖 Linux、macOS、Windows 的 amd64 和 arm64。Release 使用 `CGO_ENABLED=0` 构建；其他平台可以用 Go 1.26 源码构建，但属于 best effort。GitHub.com 和 GitLab.com 是主要 SaaS 目标。GHES 和自建 GitLab 通过对应 REST API best effort 支持，不承诺最低服务端版本；请使用目标实例自己的 provider、API 基址、token 和代表性仓库进行验收。
 

@@ -65,7 +65,7 @@ func credentialHelperLookup(dir string) func(string) (string, error) {
 func clearCredentialEnvironment(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
-		"GITRG_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
+		"GITRG_TOKEN", "GITRG_WRITE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
 		"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI", "GITLAB_USER_ID",
 	} {
 		t.Setenv(name, "")
@@ -401,6 +401,7 @@ func TestCredentialEnvironmentRemovesCredentialAndHostOverrides(t *testing.T) {
 		"PATH=/usr/bin",
 		"HTTPS_PROXY=http://proxy.invalid:8080",
 		"GITRG_TOKEN=generic-token",
+		"GITRG_WRITE_TOKEN=write-token",
 		"GITHUB_TOKEN=github-token",
 		"GH_TOKEN=gh-token",
 		"GH_ENTERPRISE_TOKEN=enterprise-token",
@@ -429,7 +430,7 @@ func TestCredentialEnvironmentRemovesCredentialAndHostOverrides(t *testing.T) {
 		values[name] = value
 	}
 	for _, name := range []string{
-		"GITRG_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
+		"GITRG_TOKEN", "GITRG_WRITE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
 		"GH_HOST", "GH_REPO", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "GITLAB_HOST", "GITLAB_URI",
 		"GL_HOST", "GITLAB_API_HOST", "GITLAB_SUBFOLDER", "OAUTH_TOKEN", "GLAB_IS_OAUTH2", "GLAB_USER",
 		"GITLAB_CLIENT_ID", "CI_JOB_TOKEN", "GIT_CONFIG_COUNT", "GIT_TRACE",
@@ -604,7 +605,7 @@ func assertCredentialEnvironmentScrubbed(t *testing.T, env []string) {
 	for _, item := range env {
 		name, value, _ := strings.Cut(item, "=")
 		switch name {
-		case "GITRG_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI", "GITLAB_USER_ID":
+		case "GITRG_TOKEN", "GITRG_WRITE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI", "GITLAB_USER_ID":
 			if value != "" {
 				t.Errorf("credential helper environment retained %s", name)
 			}

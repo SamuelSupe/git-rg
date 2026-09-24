@@ -31,9 +31,10 @@ func (e *HTTPError) Error() string {
 }
 
 type client struct {
-	http    *http.Client
-	headers func(*http.Request)
-	secrets []string
+	http         *http.Client
+	headers      func(*http.Request)
+	secrets      []string
+	writeEnabled bool
 
 	mu           sync.Mutex
 	requests     int
@@ -53,6 +54,7 @@ func newClient(options Options, headers func(*http.Request), secrets ...string) 
 		headers:      headers,
 		secrets:      secrets,
 		requestLimit: options.RequestLimit,
+		writeEnabled: options.EnableWrite,
 	}
 	c.http = &http.Client{Transport: transport, CheckRedirect: c.checkRedirect}
 	return c
@@ -211,6 +213,10 @@ func (c *client) getJSON(ctx context.Context, endpoint string, out any) (http.He
 		return nil, err
 	}
 	defer resp.Body.Close()
+	return decodeJSONResponse(resp, out)
+}
+
+func decodeJSONResponse(resp *http.Response, out any) (http.Header, error) {
 	if resp.ContentLength > maxJSONResponseSize {
 		return nil, &ResourceLimitError{Resource: "remote API response bytes", Limit: maxJSONResponseSize}
 	}

@@ -31,6 +31,8 @@ Repository forms:
 
 Commands:
   refs [FLAGS] REPOSITORY  list branch heads and tags
+  read [FLAGS] REPOSITORY PATH  read a complete text file and its blob SHA
+  propose [FLAGS] REPOSITORY  preview changes or create a draft PR/MR (writes off by default)
 
 Flags:`
 
@@ -62,8 +64,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 }
 
 func RunVersion(args []string, stdout, stderr io.Writer, version string) int {
-	if len(args) > 0 && args[0] == "refs" {
-		return runRefs(args[1:], stdout, stderr)
+	if len(args) > 0 {
+		switch args[0] {
+		case "refs":
+			return runRefs(args[1:], stdout, stderr)
+		case "read", "propose":
+			return runChangeCommand(args[0], args[1:], stdout, stderr)
+		}
 	}
 	return runSearch(args, stdout, stderr, version)
 }

@@ -75,6 +75,10 @@ jobs:
           }
           & $binaryPath --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "--help failed" }
+          foreach ($command in @("read", "propose")) {
+            & $binaryPath $command --help | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "$command --help failed" }
+          }
 
           if ("${{ matrix.goos }}" -eq "windows") {
             Compress-Archive -Path $outputDirectory -DestinationPath "dist/$directory.zip"
@@ -129,7 +133,7 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" dist/* --title "git-rg ${GITHUB_REF_NAME}" --generate-notes --verify-tag
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --title "git-rg ${GITHUB_REF_NAME}" --notes-file "docs/releases/${GITHUB_REF_NAME}.md" --verify-tag
 
   install-smoke:
     name: Install ${{ matrix.goos }}/${{ matrix.goarch }}
@@ -202,3 +206,38 @@ jobs:
         run: |
           set -euo pipefail
           "${RUNNER_TEMP}/git-rg-bin/git-rg" --mode exact --format text --max-results 1 -F test gitlab:gitlab-org/gitlab-test >/dev/null
+      - name: Read files and preview agent proposals
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $binary = Join-Path $env:RUNNER_TEMP "git-rg-bin/git-rg"
+          foreach ($case in @(
+            @{ repository = "github:$env:GITHUB_REPOSITORY"; path = "go.mod"; base = "main" },
+            @{ repository = "gitlab:gitlab-org/gitlab-test"; path = "README.md"; base = "master" }
+          )) {
+            $fileOutput = & $binary read --auth env $case.repository $case.path
+            if ($LASTEXITCODE -ne 0) { throw "read failed for $($case.repository)" }
+            $file = $fileOutput | ConvertFrom-Json
+            if ($file.type -ne "file" -or -not $file.commit -or -not $file.blob) {
+              throw "incomplete file result"
+            }
+            $plan = @{
+              schema_version = 1; base_commit = $file.commit; base_branch = $case.base
+              branch = "agent/release-smoke"; title = "Release preview smoke"
+              commit_message = "Release preview smoke"
+              changes = @(@{
+                action = "update"; path = $case.path; expected_blob = $file.blob
+                content = $file.content + "`nRead-only release preview.`n"
+              })
+            }
+            $planPath = Join-Path $env:RUNNER_TEMP "git-rg-preview.json"
+            $plan | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $planPath
+            $previewOutput = & $binary propose --dry-run --auth env --changes $planPath --agent-name "release-smoke" --agent-run-id $env:GITHUB_RUN_ID $case.repository
+            if ($LASTEXITCODE -ne 0) { throw "preview failed for $($case.repository)" }
+            $preview = $previewOutput | ConvertFrom-Json
+            if ($preview.type -ne "preview" -or -not $preview.diff -or $preview.agent.name -ne "release-smoke") {
+              throw "incomplete preview result"
+            }
+          }

@@ -43,7 +43,10 @@ func (g *gitHub) Resolve(ctx context.Context, repo Repository, requestedRef stri
 		resolvedRef = repositoryResponse.DefaultBranch
 	}
 	var commitResponse struct {
-		SHA    string `json:"sha"`
+		SHA     string `json:"sha"`
+		Parents []struct {
+			SHA string `json:"sha"`
+		} `json:"parents"`
 		Author *struct {
 			Login string `json:"login"`
 		} `json:"author"`
@@ -92,11 +95,16 @@ func (g *gitHub) Resolve(ctx context.Context, repo Repository, requestedRef stri
 	if commitResponse.Committer != nil {
 		commitInfo.Committer.Username = commitResponse.Committer.Login
 	}
+	parents := make([]string, 0, len(commitResponse.Parents))
+	for _, parent := range commitResponse.Parents {
+		parents = append(parents, parent.SHA)
+	}
 	return Snapshot{
 		Repository:    repo,
 		RequestedRef:  requestedRef,
 		ResolvedRef:   resolvedRef,
 		Commit:        commitResponse.SHA,
+		Parents:       parents,
 		CommitInfo:    commitInfo,
 		TreeOID:       commitResponse.Commit.Tree.SHA,
 		DefaultBranch: repositoryResponse.DefaultBranch,
@@ -167,6 +175,15 @@ func (g *gitHub) listRefs(ctx context.Context, endpoint string, kind RefKind, bu
 }
 
 func (g *gitHub) ListTree(ctx context.Context, snapshot Snapshot, requireComplete bool) ([]Entry, bool, error) {
+	return g.listTree(ctx, snapshot, requireComplete, false)
+}
+
+func (g *gitHub) ListChangeTree(ctx context.Context, snapshot Snapshot) ([]Entry, error) {
+	entries, _, err := g.listTree(ctx, snapshot, true, true)
+	return entries, err
+}
+
+func (g *gitHub) listTree(ctx context.Context, snapshot Snapshot, requireComplete, allEntries bool) ([]Entry, bool, error) {
 	endpoint := g.treeEndpoint(snapshot, snapshot.TreeOID) + "?recursive=1"
 	requests := newPaginationBudget("GitHub tree")
 	if err := requests.take(); err != nil {
@@ -178,11 +195,11 @@ func (g *gitHub) ListTree(ctx context.Context, snapshot Snapshot, requireComplet
 	}
 	budget := newCollectionBudget("GitHub tree", maxTreeItems, maxTreeMetadataBytes)
 	if !response.Truncated {
-		entries, err := githubEntriesContext(ctx, response.Tree, "", budget)
+		entries, err := githubTreeEntries(ctx, response.Tree, "", budget, allEntries)
 		return entries, err == nil, err
 	}
 	if !requireComplete {
-		entries, err := githubEntriesContext(ctx, response.Tree, "", budget)
+		entries, err := githubTreeEntries(ctx, response.Tree, "", budget, allEntries)
 		return entries, false, err
 	}
 	response.Tree = nil
@@ -223,8 +240,8 @@ func (g *gitHub) ListTree(ctx context.Context, snapshot Snapshot, requireComplet
 			switch item.Type {
 			case "tree":
 				queue = append(queue, queuedTree{oid: item.SHA, prefix: itemPath})
-			case "blob":
-				if item.Mode == "100644" || item.Mode == "100755" {
+			case "blob", "commit":
+				if allEntries || item.Mode == "100644" || item.Mode == "100755" {
 					entries = append(entries, Entry{Path: itemPath, OID: item.SHA, Mode: item.Mode, Size: item.Size})
 				}
 			}
@@ -334,6 +351,10 @@ type gitHubTreeItem struct {
 }
 
 func githubEntriesContext(ctx context.Context, items []gitHubTreeItem, prefix string, budget *collectionBudget) ([]Entry, error) {
+	return githubTreeEntries(ctx, items, prefix, budget, false)
+}
+
+func githubTreeEntries(ctx context.Context, items []gitHubTreeItem, prefix string, budget *collectionBudget, allEntries bool) ([]Entry, error) {
 	entries := make([]Entry, 0, len(items))
 	for _, item := range items {
 		if err := ctx.Err(); err != nil {
@@ -346,7 +367,7 @@ func githubEntriesContext(ctx context.Context, items []gitHubTreeItem, prefix st
 		if err := budget.add(itemPath, item.SHA, item.Mode, item.Type); err != nil {
 			return nil, err
 		}
-		if item.Type != "blob" || item.Mode != "100644" && item.Mode != "100755" {
+		if item.Type == "tree" || (!allEntries && (item.Type != "blob" || item.Mode != "100644" && item.Mode != "100755")) {
 			continue
 		}
 		entries = append(entries, Entry{Path: itemPath, OID: item.SHA, Mode: item.Mode, Size: item.Size})
