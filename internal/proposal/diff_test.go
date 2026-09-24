@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -32,6 +33,9 @@ func TestPreviewAppliesToExactFileContents(t *testing.T) {
 		{"distant edits", "update", "file.txt", strings.Repeat("a\n", 8) + "old\n" + strings.Repeat("b\n", 8) + "before\n" + strings.Repeat("c\n", 8), strings.Repeat("a\n", 8) + "new\n" + strings.Repeat("b\n", 8) + "after\n" + strings.Repeat("c\n", 8)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" && strings.ContainsRune(tc.path, '"') {
+				t.Skip("Windows filenames cannot contain double quotes")
+			}
 			dir := t.TempDir()
 			file := filepath.Join(dir, tc.path)
 			if tc.action != "create" {
@@ -44,7 +48,8 @@ func TestPreviewAppliesToExactFileContents(t *testing.T) {
 			}
 			var diff strings.Builder
 			writeDiff(&diff, Change{Action: tc.action, Path: tc.path}, "100644", tc.old, tc.updated)
-			command := exec.Command(git, "apply", "--whitespace=nowarn", "-")
+			// User Git settings must not rewrite the bytes being checked by this oracle.
+			command := exec.Command(git, "-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", "-")
 			command.Dir, command.Stdin = dir, strings.NewReader(diff.String())
 			if output, err := command.CombinedOutput(); err != nil {
 				t.Fatalf("git apply: %v: %s\n%s", err, output, diff.String())
