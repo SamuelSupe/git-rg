@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-func githubRepositoryEndpoint(snapshot Snapshot) string {
-	owner, repo, _ := strings.Cut(snapshot.Repository.Project, "/")
-	return snapshot.Repository.APIBase + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo)
+func githubRepositoryEndpoint(repository Repository) string {
+	owner, repo, _ := strings.Cut(repository.Project, "/")
+	return repository.APIBase + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo)
 }
 
 func (g *gitHub) BranchHead(ctx context.Context, snapshot Snapshot, branch string) (string, error) {
@@ -18,7 +18,7 @@ func (g *gitHub) BranchHead(ctx context.Context, snapshot Snapshot, branch strin
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
-	_, err := g.client.getJSON(ctx, githubRepositoryEndpoint(snapshot)+"/git/ref/heads/"+escapeRepositoryPath(branch), &response)
+	_, err := g.client.getJSON(ctx, githubRepositoryEndpoint(snapshot.Repository)+"/git/ref/heads/"+escapeRepositoryPath(branch), &response)
 	if isNotFound(err) {
 		return "", nil
 	}
@@ -29,7 +29,7 @@ func (g *gitHub) BranchHead(ctx context.Context, snapshot Snapshot, branch strin
 }
 
 func (g *gitHub) CreateChange(ctx context.Context, snapshot Snapshot, branch, message string, changes []FileChange) (string, error) {
-	base := githubRepositoryEndpoint(snapshot)
+	base := githubRepositoryEndpoint(snapshot.Repository)
 	tree := make([]map[string]any, 0, len(changes))
 	for _, change := range changes {
 		entry := map[string]any{"path": change.Path, "mode": change.Mode, "type": "blob"}
@@ -97,7 +97,7 @@ func (g *gitHub) FindPullRequest(ctx context.Context, snapshot Snapshot, branch,
 	owner, _, _ := strings.Cut(snapshot.Repository.Project, "/")
 	values := url.Values{"head": {owner + ":" + branch}, "base": {baseBranch}, "state": {"all"}, "per_page": {"100"}}
 	var response []githubPullRequest
-	_, err := g.client.getJSON(ctx, githubRepositoryEndpoint(snapshot)+"/pulls?"+values.Encode(), &response)
+	_, err := g.client.getJSON(ctx, githubRepositoryEndpoint(snapshot.Repository)+"/pulls?"+values.Encode(), &response)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (g *gitHub) FindPullRequest(ctx context.Context, snapshot Snapshot, branch,
 
 func (g *gitHub) CreatePullRequest(ctx context.Context, snapshot Snapshot, branch, baseBranch, title, body string) (PullRequest, error) {
 	var response githubPullRequest
-	err := g.client.postJSON(ctx, githubRepositoryEndpoint(snapshot)+"/pulls", map[string]any{
+	err := g.client.postJSON(ctx, githubRepositoryEndpoint(snapshot.Repository)+"/pulls", map[string]any{
 		"head": branch, "base": baseBranch, "title": title, "body": body, "draft": true,
 	}, &response)
 	return response.result(), err

@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-var ErrWriteDisabled = errors.New("remote writes are disabled; use propose --enable-write to opt in")
+var ErrWriteDisabled = errors.New("remote writes are disabled; pass --enable-write to opt in")
 
 // FileChange contains validated UTF-8 text. Mode is preserved for existing files.
 type FileChange struct {

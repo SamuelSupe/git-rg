@@ -12,7 +12,7 @@
 
 `git-rg` 是一个用 Go 编写的远程代码搜索命令行工具。它会先把分支、tag 或 commit 解析为固定的 commit SHA，再按所选搜索路径从 API 按需读取内容，默认输出适合 agent 消费的 NDJSON。它支持公开、私有以及自建的 GitHub/GitLab 实例；不会创建本地工作树，也不会下载 Git 历史。
 
-**v0.6.0 新增：一个 token 即可读取和提交变更。** 仅配置 `GITRG_WRITE_TOKEN`，即可认证搜索、refs、文件读取、预览及显式启用的发布操作。agent 生成 JSON 变更计划，`git-rg` 校验原始文件、预览 diff，并在新分支上创建 commit 和草稿 PR/MR。详见[使用说明与变更格式](docs/agent-changes.md)。
+**v0.7.0 新增：创建 GitHub/GitLab issue，并携带 Agent 身份。** 可先在本地预览正文，再显式启用创建。示例和权限见[issue 创建说明](docs/issues.md)。原有读取与提案工作流继续支持单 token： 仅配置 `GITRG_WRITE_TOKEN`，即可认证搜索、refs、文件读取、预览及显式启用的发布操作。agent 生成 JSON 变更计划，`git-rg` 校验原始文件、预览 diff，并在新分支上创建 commit 和草稿 PR/MR。详见[使用说明与变更格式](docs/agent-changes.md)。
 
 ```sh
 # 只读：返回完整文件、固定 commit SHA 和 blob SHA。
@@ -25,18 +25,35 @@ git-rg propose --dry-run --changes changes.json github:OWNER/REPO
 git-rg propose --enable-write --changes changes.json github:OWNER/REPO
 ```
 
-GitLab 使用 `gitlab:GROUP/PROJECT`，相同命令会创建草稿 MR。普通搜索、`refs`、`read` 和 `--dry-run` 优先使用原有读取环境变量凭证，这些变量未设置时回退使用 `GITRG_WRITE_TOKEN`。仅设置 token 不会打开写入能力；即使同时传入 `--enable-write`，`--dry-run` 仍然只读。创建结果会返回分支、commit、PR/MR 链接和 `result.complete`，编译、测试与 CI 状态需要另行验证。
+GitLab 使用 `gitlab:GROUP/PROJECT`，相同命令会创建草稿 MR。普通搜索、`refs`、`read` 和 `propose --dry-run` 优先使用原有读取环境变量凭证，这些变量未设置时回退使用 `GITRG_WRITE_TOKEN`。仅设置 token 不会打开写入能力；即使同时传入 `--enable-write`，`--dry-run` 仍然只读。创建结果会返回分支、commit、PR/MR 链接和 `result.complete`，编译、测试与 CI 状态需要另行验证。
 
 可选参数 `--agent-name`、`--agent-model`、`--agent-run-id` 会把 Agent 自报的身份信息附加到 PR/MR 描述。平台作者仍是凭证对应的账号。JSON 输入格式和重试规则见 [Agent 身份说明](docs/agent-changes.md#agent-identity)。
 
-<a id="whats-new-in-v060"></a>
-## v0.6.0 更新
+<a id="whats-new-in-v070"></a>
+## v0.7.0 更新
 
-- **单 token 工作流**：搜索、`refs`、`read` 和 `propose --dry-run` 均可使用 `GITRG_WRITE_TOKEN`，支持 `--auth auto`、`--auth env` 及自建实例。
-- **保留读取凭证优先级**：`GITRG_TOKEN` 和适用的云端 token 优先于写入 token；所有适用环境变量均未设置时才复用 `gh/glab` 登录。
-- **写入默认关闭**：发布仍需 `--enable-write` 和 `GITRG_WRITE_TOKEN`，dry-run 始终只读，凭证被拒绝后不会切换身份重试。
+- **创建 issue**：`git-rg issue create` 支持 GitHub/GitLab，可传入标题、来自参数/文件/stdin 的 Markdown 正文，以及 Agent 名称、模型和运行 ID。
+- **本地预览**：`--dry-run` 校验并输出最终正文，不需要凭证，不请求远端，优先于 `--enable-write`。
+- **显式发布**：创建 issue 需要 `--enable-write` 和具备 issue 权限的 `GITRG_WRITE_TOKEN`；无法确认的请求明确返回不确定状态，不自动重放。
+- **更新帮助**：`git-rg issue --help` 和 `git-rg issue create --help` 提供示例、权限、身份、限制及重试说明。
 
-详见 [v0.6.0 发布说明](docs/releases/v0.6.0.md)。退出码及 NDJSON schema v1 保持兼容。如果之前同时配置了 `GITRG_WRITE_TOKEN` 并依赖 CLI 登录读取，请显式配置 `GITRG_TOKEN` 以保留独立的读取身份。
+详见 [v0.7.0 发布说明](docs/releases/v0.7.0.md)。既有搜索/提案行为、凭证优先级、退出码及 NDJSON schema v1 保持兼容。
+
+<a id="create-an-issue"></a>
+## 创建 issue
+
+自 v0.7.0 起支持创建 GitHub/GitLab issue，传入标题、Markdown 正文及可选的 Agent 身份：
+
+```sh
+# 本地校验和预览，不需要 token，也不发送远端请求。
+git-rg issue create --dry-run --title "描述发现的问题" --body-file issue.md github:OWNER/REPO
+
+# 需要具备 issue 创建权限的 GITRG_WRITE_TOKEN。
+git-rg issue create --enable-write --title "描述发现的问题" --body-file issue.md \
+  --agent-name "Review Agent" --agent-run-id "run-123" github:OWNER/REPO
+```
+
+GitLab 使用 `gitlab:GROUP/PROJECT`。写入默认关闭，`--dry-run` 优先于 `--enable-write`。创建请求不自动重试；响应丢失时，请先检查远端 issue 列表，再决定是否重新执行。权限、stdin、输出和限制见[issue 创建说明](docs/issues.md)。
 
 ## 安装并运行
 
@@ -44,7 +61,7 @@ Linux/macOS，安装到用户目录：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.6.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.7.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -53,7 +70,7 @@ Windows PowerShell：
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.6.0
+& $installer -Version v0.7.0
 git-rg --version
 ```
 
@@ -79,7 +96,8 @@ git-rg refs github:OWNER/REPO
 
 ## 目录
 
-- [v0.6.0 更新](#whats-new-in-v060)
+- [v0.7.0 更新](#whats-new-in-v070)
+- [创建 issue](#create-an-issue)
 - [为什么不需要 clone](#why-no-clone)
 - [安装](#install)
 - [仓库地址](#repository-addresses)
@@ -101,34 +119,34 @@ git-rg refs github:OWNER/REPO
 - `exact` 仍可能读取所选 commit 中所有符合条件的普通文本文件。“不 clone”省去工作树和历史传输，并不表示完整搜索不读取仓库内容或不需要网络。
 - SSH 风格的 clone URL 只用于解析地址。`git-rg` 不使用 SSH 认证，也不使用 Git 传输。
 
-当前 provider 只有 GitHub 和 GitLab。不提供离线模式、本地路径搜索、历史搜索或通用 Git 服务器协议。搜索和 ref 查询保持只读；写操作仅通过显式启用的 `propose` 命令提供。预构建二进制通过 GitHub Releases 发布。
+当前 provider 只有 GitHub 和 GitLab。不提供离线搜索、本地路径搜索、历史搜索或通用 Git 服务器协议。搜索和 ref 查询保持只读；写操作必须通过显式启用的写入命令执行。预构建二进制通过 GitHub Releases 发布。
 
 <a id="install"></a>
 ## 安装
 
-v0.6.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
+v0.7.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
 
 ### 预构建平台矩阵
 
 以下六种组合属于 Tier 1，每个 Release 都会提供：
 
-| 操作系统 | 架构 | v0.6.0 资产 | 支持级别 |
+| 操作系统 | 架构 | v0.7.0 资产 | 支持级别 |
 | --- | --- | --- | --- |
-| Linux | amd64（x86_64） | `git-rg_v0.6.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.6.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64（x86_64） | `git-rg_v0.6.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.6.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64（x86_64） | `git-rg_v0.6.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.6.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64（x86_64） | `git-rg_v0.7.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.7.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64（x86_64） | `git-rg_v0.7.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.7.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64（x86_64） | `git-rg_v0.7.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.7.0_windows_arm64.zip` | Tier 1 |
 
-每个 archive 包含一个顶层版本目录和一个可执行文件。v0.6.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
+每个 archive 包含一个顶层版本目录和一个可执行文件。v0.7.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
 
 ### GitHub Release（手工下载）
 
-从 [v0.6.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.6.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
+从 [v0.7.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.7.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
 
 ```sh
-version=v0.6.0
+version=v0.7.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -146,7 +164,7 @@ macOS 如果没有 `sha256sum`，可改用 `shasum -a 256`；按机器选择 `da
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.6.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.7.0 --bin-dir "$HOME/.local/bin"
 ```
 
 使用 `--version VERSION` 固定版本；省略时使用 latest。使用 `--bin-dir DIRECTORY` 指定安装目录。需要可审阅的安装过程时，先下载并检查脚本，再执行它。完整参数和失败处置见 [docs/installation.md](docs/installation.md)。
@@ -158,7 +176,7 @@ curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.6.0
+& $installer -Version v0.7.0
 git-rg --version
 ```
 
@@ -195,7 +213,7 @@ scoop uninstall git-rg
 
 ```sh
 # 固定到当前支持版本。
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.6.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.7.0
 
 # 或跟随最新模块版本。
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -478,7 +496,7 @@ CLI 未安装时静默匿名访问。未登录、读取失败、超时或输出�
 
 六个 Tier 1 二进制覆盖 Linux、macOS、Windows 的 amd64 和 arm64。Release 使用 `CGO_ENABLED=0` 构建；其他平台可以用 Go 1.26 源码构建，但属于 best effort。GitHub.com 和 GitLab.com 是主要 SaaS 目标。GHES 和自建 GitLab 通过对应 REST API best effort 支持，不承诺最低服务端版本；请使用目标实例自己的 provider、API 基址、token 和代表性仓库进行验收。
 
-GitHub tree 行为可参阅官方 [Git Trees API](https://docs.github.com/en/rest/git/trees)。工具需要访问支持的 API，目前不提供离线模式、SSH 认证或通用 Git 服务器兼容性。
+GitHub tree 行为可参阅官方 [Git Trees API](https://docs.github.com/en/rest/git/trees)。搜索需要访问支持的 API，目前不提供离线搜索、SSH 认证或通用 Git 服务器兼容性。
 
 <a id="development-support-and-license"></a>
 ## 开发、支持与许可证

@@ -20,7 +20,7 @@ const credentialTimeout = 10 * time.Second
 func WriteCredentials() (string, error) {
 	token := os.Getenv("GITRG_WRITE_TOKEN")
 	if !validCredentialToken(token) {
-		return "", errors.New("set GITRG_WRITE_TOKEN to a valid token with repository and PR/MR write permissions")
+		return "", errors.New("set GITRG_WRITE_TOKEN to a valid token with permissions for the requested write operation")
 	}
 	return token, nil
 }

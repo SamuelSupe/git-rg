@@ -12,7 +12,7 @@
 
 `git-rg` is a small Go command-line tool for remote code search. It resolves a branch, tag, or commit to a fixed commit SHA, reads only the API content needed for the selected search path, and emits agent-friendly NDJSON by default. It supports public, private, and self-managed GitHub/GitLab instances; it does not create a local checkout or download Git history.
 
-**New in v0.6.0: one token for reading and proposing changes.** Set only `GITRG_WRITE_TOKEN` to authenticate search, refs, file reads, and previews as well as explicitly enabled publication. An agent supplies a JSON change plan, and `git-rg` validates the original files, previews the diff, and publishes a commit and draft PR/MR on a new branch. See [Agent changes](docs/agent-changes.md) for the input format and recovery contract.
+**New in v0.7.0: create GitHub and GitLab issues with Agent identity.** Preview issue content locally, then explicitly enable creation. See [Issue creation](docs/issues.md) for examples and permissions. The existing read and proposal workflow continues to support a single token: Set only `GITRG_WRITE_TOKEN` to authenticate search, refs, file reads, and previews as well as explicitly enabled publication. An agent supplies a JSON change plan, and `git-rg` validates the original files, previews the diff, and publishes a commit and draft PR/MR on a new branch. See [Agent changes](docs/agent-changes.md) for the input format and recovery contract.
 
 ```sh
 # Read a complete file, its immutable commit SHA, and its blob SHA.
@@ -25,17 +25,33 @@ git-rg propose --dry-run --changes changes.json github:OWNER/REPO
 git-rg propose --enable-write --changes changes.json github:OWNER/REPO
 ```
 
-Use `gitlab:GROUP/PROJECT` to create a draft GitLab MR with the same commands. Search, `refs`, `read`, and `--dry-run` prefer existing read environment credentials and fall back to `GITRG_WRITE_TOKEN` when those are absent. Setting a token alone cannot enable writes; `--dry-run` remains read-only even alongside `--enable-write`. Publication returns the branch, commit, PR/MR URL, and `result.complete`. Compilation, tests, and CI status need separate verification.
+Use `gitlab:GROUP/PROJECT` to create a draft GitLab MR with the same commands. Search, `refs`, `read`, and `propose --dry-run` prefer existing read environment credentials and fall back to `GITRG_WRITE_TOKEN` when those are absent. Setting a token alone cannot enable writes; `--dry-run` remains read-only even alongside `--enable-write`. Publication returns the branch, commit, PR/MR URL, and `result.complete`. Compilation, tests, and CI status need separate verification.
 
 Optional `--agent-name`, `--agent-model`, and `--agent-run-id` flags attach self-reported agent identity to the PR/MR description. The platform author remains the authenticated account. See [Agent identity](docs/agent-changes.md#agent-identity) for JSON input and retry behavior.
 
-## What's new in v0.6.0
+## What's new in v0.7.0
 
-- **Single-token workflows:** search, `refs`, `read`, and `propose --dry-run` can use `GITRG_WRITE_TOKEN` with both `--auth auto` and `--auth env`, including self-managed hosts.
-- **Read credentials keep priority:** `GITRG_TOKEN` and applicable cloud tokens win over the write-token fallback. Automatic `gh`/`glab` login is used only when no applicable environment token is set.
-- **Writes remain opt-in:** publication still requires `--enable-write` and `GITRG_WRITE_TOKEN`. Dry runs stay read-only, and rejected credentials do not trigger a retry with another identity.
+- **Issue creation:** `git-rg issue create` accepts a title, Markdown body from a flag/file/stdin, and optional Agent name, model, and run ID for GitHub and GitLab.
+- **Local preview:** `--dry-run` validates the final issue body without credentials or remote requests. It takes precedence over `--enable-write`.
+- **Explicit publication:** creating an issue requires `--enable-write` and a `GITRG_WRITE_TOKEN` with issue permissions. Unconfirmed requests are reported as uncertain and never automatically replayed.
+- **Updated help:** `git-rg issue --help` and `git-rg issue create --help` explain examples, permissions, attribution, limits, and retry behavior.
 
-See the [v0.6.0 release notes](docs/releases/v0.6.0.md). Exit codes and NDJSON schema v1 remain unchanged. If you previously relied on a CLI login while exporting `GITRG_WRITE_TOKEN`, set `GITRG_TOKEN` explicitly to keep a separate read identity.
+See the [v0.7.0 release notes](docs/releases/v0.7.0.md). Existing search/proposal behavior, credential precedence, exit codes, and NDJSON schema v1 remain compatible.
+
+## Create an issue
+
+Available since v0.7.0. Create GitHub or GitLab issues with a title, Markdown body, and optional Agent identity:
+
+```sh
+# Validate and preview locally; no token or remote request is needed.
+git-rg issue create --dry-run --title "Describe the problem" --body-file issue.md github:OWNER/REPO
+
+# Requires GITRG_WRITE_TOKEN with issue-creation permission.
+git-rg issue create --enable-write --title "Describe the problem" --body-file issue.md \
+  --agent-name "Review Agent" --agent-run-id "run-123" github:OWNER/REPO
+```
+
+Use `gitlab:GROUP/PROJECT` for GitLab. Writes remain off by default, and `--dry-run` overrides `--enable-write`. Creation requests are never automatically retried; if the response is lost, inspect the remote issues before running the command again. See [Issue creation](docs/issues.md) for permissions, stdin, output, and limits.
 
 ## Install and run
 
@@ -43,7 +59,7 @@ Linux/macOS, installed to a user-owned directory:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.6.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.7.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -52,7 +68,7 @@ Windows PowerShell:
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.6.0
+& $installer -Version v0.7.0
 git-rg --version
 ```
 
@@ -78,7 +94,8 @@ git-rg refs github:OWNER/REPO
 
 ## Contents
 
-- [What's new in v0.6.0](#whats-new-in-v060)
+- [What's new in v0.7.0](#whats-new-in-v070)
+- [Create an issue](#create-an-issue)
 - [Why no clone](#why-no-clone)
 - [Install](#install)
 - [Repository addresses](#repository-addresses)
@@ -99,33 +116,33 @@ git-rg refs github:OWNER/REPO
 - `exact` can still read every matching ordinary text file in the selected commit. “Without cloning” removes the checkout and history transfer; it does not mean that a full search reads no repository content or uses no network.
 - SSH-style clone URLs are accepted for address parsing only. `git-rg` does not use SSH authentication or the Git transport.
 
-The current providers are GitHub and GitLab. There is no offline mode, local-path search, history search, or generic Git-server protocol. Search and ref queries remain read-only; writes are available only through the explicitly enabled `propose` command. Pre-built binaries are published through GitHub Releases.
+The current providers are GitHub and GitLab. There is no offline search mode, local-path search, history search, or generic Git-server protocol. Search and ref queries remain read-only; writes require an explicitly enabled write command. Pre-built binaries are published through GitHub Releases.
 
 ## Install
 
-v0.6.0 is the current supported release. Earlier v0.x releases remain downloadable for reproduction or rollback but are EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
+v0.7.0 is the current supported release. Earlier v0.x releases remain downloadable for reproduction or rollback but are EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
 
 ### Pre-built platform matrix
 
 The six combinations below are Tier 1 and are shipped for every release:
 
-| Operating system | Architecture | v0.6.0 asset | Support |
+| Operating system | Architecture | v0.7.0 asset | Support |
 | --- | --- | --- | --- |
-| Linux | amd64 (x86_64) | `git-rg_v0.6.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.6.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64 (x86_64) | `git-rg_v0.6.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.6.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64 (x86_64) | `git-rg_v0.6.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.6.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64 (x86_64) | `git-rg_v0.7.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.7.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64 (x86_64) | `git-rg_v0.7.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.7.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64 (x86_64) | `git-rg_v0.7.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.7.0_windows_arm64.zip` | Tier 1 |
 
-Each archive contains one top-level version directory and one executable. The v0.6.0 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
+Each archive contains one top-level version directory and one executable. The v0.7.0 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
 
 ### GitHub Release (manual)
 
-Download the matching asset from the [v0.6.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.6.0), download `checksums.txt`, and verify before extracting:
+Download the matching asset from the [v0.7.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.7.0), download `checksums.txt`, and verify before extracting:
 
 ```sh
-version=v0.6.0
+version=v0.7.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -143,7 +160,7 @@ The script supports amd64 and arm64, defaults to `$HOME/.local/bin`, and does no
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.6.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.7.0 --bin-dir "$HOME/.local/bin"
 ```
 
 Use `--version VERSION` for a fixed release or omit it for the latest release. Use `--bin-dir DIRECTORY` to select the destination. For a reviewable installation, download the script first, inspect it, and then run it. The complete option list and failure handling are in [docs/installation.md](docs/installation.md).
@@ -155,7 +172,7 @@ The script supports Windows amd64 and arm64. It defaults to `%LOCALAPPDATA%\Prog
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.6.0
+& $installer -Version v0.7.0
 git-rg --version
 ```
 
@@ -192,7 +209,7 @@ With Go 1.26 or newer:
 
 ```sh
 # Pin the supported release.
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.6.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.7.0
 
 # Or follow the latest module version.
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -465,7 +482,7 @@ Read requests get at most three attempts. The read client respects usable `Retry
 
 The six Tier 1 binaries are Linux, macOS, and Windows on amd64 and arm64. Release builds use `CGO_ENABLED=0`; other platforms can be built from source with Go 1.26 on a best-effort basis. GitHub.com and GitLab.com are the primary SaaS targets. GHES and self-managed GitLab are supported on a best-effort basis through their REST APIs, without a promised minimum server version; validate the target instance with its own provider, API base, token, and representative repositories.
 
-For GitHub tree behavior, see the official [Git Trees API](https://docs.github.com/en/rest/git/trees). The tool requires network access to a supported API and currently provides no offline mode, SSH authentication, or generic Git-server compatibility.
+For GitHub tree behavior, see the official [Git Trees API](https://docs.github.com/en/rest/git/trees). Search requires network access to a supported API; offline search, SSH authentication, and generic Git-server compatibility are not supported.
 
 ## Development, support, and license
 

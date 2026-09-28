@@ -1,4 +1,4 @@
-package proposal
+package agent
 
 import (
 	"encoding/json"
@@ -9,14 +9,14 @@ import (
 	"unicode/utf8"
 )
 
-// AgentIdentity is caller-supplied attribution, not the authenticated platform author.
-type AgentIdentity struct {
+// Identity is caller-supplied attribution, not the authenticated platform author.
+type Identity struct {
 	Name  string `json:"name"`
 	Model string `json:"model,omitempty"`
 	RunID string `json:"run_id,omitempty"`
 }
 
-func (a *AgentIdentity) validate() error {
+func (a *Identity) Validate() error {
 	if a == nil {
 		return nil
 	}
@@ -31,14 +31,13 @@ func (a *AgentIdentity) validate() error {
 	return nil
 }
 
-func (p Plan) pullRequestBody() string {
-	if p.Agent == nil {
-		return p.Body
+func (a *Identity) AppendToBody(body string) string {
+	if a == nil {
+		return body
 	}
-	body := p.Body
 	if body != "" {
 		body += "\n\n---\n\n"
 	}
-	identity, _ := json.MarshalIndent(p.Agent, "", "  ")
+	identity, _ := json.MarshalIndent(a, "", "  ")
 	return body + "### Agent (self-reported)\n\n```json\n" + string(identity) + "\n```\n"
 }

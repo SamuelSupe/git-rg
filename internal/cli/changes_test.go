@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SamuelSupe/git-rg/internal/agent"
 	"github.com/SamuelSupe/git-rg/internal/proposal"
 )
 
@@ -105,9 +106,9 @@ func TestRunProposalWorkflow(t *testing.T) {
 						proposal.Change{Action: "delete", Path: "replace/child.txt", ExpectedBlob: cliGitBlobOID([]byte("old\n"))},
 						proposal.Change{Action: "create", Path: "replace", Content: &added})
 				}
-				var wantAgent *proposal.AgentIdentity
+				var wantAgent *agent.Identity
 				if scenario == "agent_plan" {
-					plan.Agent = &proposal.AgentIdentity{Name: "Agent `quoted` <bot>", Model: "model-1", RunID: "run-123"}
+					plan.Agent = &agent.Identity{Name: "Agent `quoted` <bot>", Model: "model-1", RunID: "run-123"}
 					wantAgent = plan.Agent
 				}
 				planPath := filepath.Join(t.TempDir(), "change.json")
@@ -124,7 +125,7 @@ func TestRunProposalWorkflow(t *testing.T) {
 				args := []string{"propose", "--auth", "env", "--api-base", server.URL, "--changes", planPath}
 				if scenario == "agent_flags" {
 					args = append(args, "--agent-name", "CLI Agent", "--agent-model", "model-2", "--agent-run-id", "run-123")
-					wantAgent = &proposal.AgentIdentity{Name: "CLI Agent", Model: "model-2", RunID: "run-123"}
+					wantAgent = &agent.Identity{Name: "CLI Agent", Model: "model-2", RunID: "run-123"}
 				}
 				run := func(extra ...string) (int, []changeEvent) {
 					stdout.Reset()
@@ -264,7 +265,7 @@ func TestRunProposalWorkflow(t *testing.T) {
 				} else {
 					_, metadata, found := strings.Cut(api.prBody, "```json\n")
 					metadata, _, _ = strings.Cut(metadata, "\n```")
-					var posted proposal.AgentIdentity
+					var posted agent.Identity
 					if !found || !strings.HasPrefix(api.prBody, plan.Body) || json.Unmarshal([]byte(metadata), &posted) != nil || posted != *wantAgent {
 						t.Fatalf("PR body lost attribution or original description: %q", api.prBody)
 					}

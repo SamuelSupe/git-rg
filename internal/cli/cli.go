@@ -33,6 +33,10 @@ Commands:
   refs [FLAGS] REPOSITORY  list branch heads and tags
   read [FLAGS] REPOSITORY PATH  read a complete text file and its blob SHA
   propose [FLAGS] REPOSITORY  preview changes or create a draft PR/MR (writes off by default)
+  issue create [FLAGS] REPOSITORY  preview or create an issue (writes off by default)
+
+Run git-rg <command> --help for command-specific flags.
+Writes require --enable-write and GITRG_WRITE_TOKEN; setting a token alone never enables writes.
 
 Flags:`
 
@@ -70,6 +74,8 @@ func RunVersion(args []string, stdout, stderr io.Writer, version string) int {
 			return runRefs(args[1:], stdout, stderr)
 		case "read", "propose":
 			return runChangeCommand(args[0], args[1:], stdout, stderr)
+		case "issue":
+			return runIssueCommand(args[1:], stdout, stderr)
 		}
 	}
 	return runSearch(args, stdout, stderr, version)

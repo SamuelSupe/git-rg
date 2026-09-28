@@ -62,7 +62,7 @@ func (p *Prepared) Publish(ctx context.Context, remote provider.ChangeProvider) 
 		return result, err
 	}
 	if pr == nil {
-		created, err := remote.CreatePullRequest(ctx, snapshot, plan.Branch, plan.BaseBranch, plan.Title, plan.pullRequestBody())
+		created, err := remote.CreatePullRequest(ctx, snapshot, plan.Branch, plan.BaseBranch, plan.Title, plan.Agent.AppendToBody(plan.Body))
 		if created.Number > 0 || created.URL != "" {
 			result.PullRequest = &created
 		}

@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/SamuelSupe/git-rg/internal/agent"
 	"github.com/SamuelSupe/git-rg/internal/provider"
 )
 
@@ -22,15 +23,15 @@ const maxContentBytes = 4 << 20
 const maxFiles = 100
 
 type Plan struct {
-	Schema        int            `json:"schema_version"`
-	BaseCommit    string         `json:"base_commit"`
-	BaseBranch    string         `json:"base_branch"`
-	Branch        string         `json:"branch"`
-	Title         string         `json:"title"`
-	Body          string         `json:"body,omitempty"`
-	CommitMessage string         `json:"commit_message"`
-	Changes       []Change       `json:"changes"`
-	Agent         *AgentIdentity `json:"agent,omitempty"`
+	Schema        int             `json:"schema_version"`
+	BaseCommit    string          `json:"base_commit"`
+	BaseBranch    string          `json:"base_branch"`
+	Branch        string          `json:"branch"`
+	Title         string          `json:"title"`
+	Body          string          `json:"body,omitempty"`
+	CommitMessage string          `json:"commit_message"`
+	Changes       []Change        `json:"changes"`
+	Agent         *agent.Identity `json:"agent,omitempty"`
 }
 
 type Change struct {
@@ -77,13 +78,13 @@ func (p Plan) Validate() error {
 	if strings.TrimSpace(p.Title) == "" || len(p.Title) > 200 || strings.ContainsFunc(p.Title, unicode.IsControl) {
 		return errors.New("title must contain 1 to 200 UTF-8 bytes without control characters")
 	}
-	if err := p.Agent.validate(); err != nil {
+	if err := p.Agent.Validate(); err != nil {
 		return err
 	}
 	if strings.TrimSpace(p.CommitMessage) == "" || len(p.CommitMessage) > 16<<10 || strings.ContainsRune(p.CommitMessage, '\x00') {
 		return errors.New("commit_message is required (up to 16 KiB)")
 	}
-	if len(p.pullRequestBody()) > 64<<10 {
+	if len(p.Agent.AppendToBody(p.Body)) > 64<<10 {
 		return errors.New("body including agent identity is limited to 64 KiB")
 	}
 	if len(p.Changes) == 0 || len(p.Changes) > maxFiles {

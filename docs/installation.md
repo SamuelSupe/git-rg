@@ -1,8 +1,10 @@
 # git-rg 安装、升级与卸载
 
-本文说明如何安装 git-rg v0.6.0、校验下载内容、升级到固定版本以及卸载。git-rg 的运行时不需要 Git 或 Go；只有从源码构建和 go install 需要 Go 1.26 或更高版本。默认认证可复用已有 gh/glab 登录；这两个 CLI 是可选的，使用环境变量 token 或匿名访问不需要安装它们。
+本文说明如何安装 git-rg v0.7.0、校验下载内容、升级到固定版本以及卸载。git-rg 的运行时不需要 Git 或 Go；只有从源码构建和 go install 需要 Go 1.26 或更高版本。默认认证可复用已有 gh/glab 登录；这两个 CLI 是可选的，使用环境变量 token 或匿名访问不需要安装它们。
 
-v0.6.0 支持仅配置 `GITRG_WRITE_TOKEN` 即可认证搜索、refs、read 和提案预览，已有读取环境变量仍优先。升级不会启用远端写入；创建草稿 PR/MR 必须每次显式传入 `--enable-write` 并通过 `GITRG_WRITE_TOKEN` 提供写入凭证。单 token 用法及 Agent 身份参数见[使用说明](agent-changes.md)。
+自 v0.6.0 起支持仅配置 `GITRG_WRITE_TOKEN` 即可认证搜索、refs、read 和提案预览，已有读取环境变量仍优先。升级不会启用远端写入；创建草稿 PR/MR 必须每次显式传入 `--enable-write` 并通过 `GITRG_WRITE_TOKEN` 提供写入凭证。单 token 用法及 Agent 身份参数见[使用说明](agent-changes.md)。
+
+v0.7.0 新增 `issue create`，创建同样要求 `--enable-write` 和具备 issue 权限的 `GITRG_WRITE_TOKEN`；其 `--dry-run` 仅在本地预览。安装后运行 `git-rg issue create --help` 查看示例，完整契约见[issue 创建说明](issues.md)。
 
 ## 选择安装方式
 
@@ -12,10 +14,10 @@ v0.6.0 支持仅配置 `GITRG_WRITE_TOKEN` 即可认证搜索、refs、read 和�
 | Windows 用户目录 | install.ps1 | 支持 amd64/arm64，可选择是否修改用户 PATH |
 | Homebrew 用户 | brew install SamuelSupe/tap/git-rg | macOS 和 Linux |
 | Scoop 用户 | scoop install git-rg | Windows |
-| 已有 Go 1.26+ | go install ...@v0.6.0 | 从源码模块安装 |
+| 已有 Go 1.26+ | go install ...@v0.7.0 | 从源码模块安装 |
 | 需要审计安装过程 | 手工下载 Release | 先下载并检查 checksums.txt |
 
-预构建版本只承诺 SUPPORT.md 中的六个 Tier 1 组合。v0.6.0 Release 共包含 9 个资产：6 个平台 archive、install.sh、install.ps1 和 checksums.txt。安装器在 Release 缺少目标 archive、checksums.txt 或匹配校验值时会拒绝安装，不会把未知内容写入目标目录。
+预构建版本只承诺 SUPPORT.md 中的六个 Tier 1 组合。v0.7.0 Release 共包含 9 个资产：6 个平台 archive、install.sh、install.ps1 和 checksums.txt。安装器在 Release 缺少目标 archive、checksums.txt 或匹配校验值时会拒绝安装，不会把未知内容写入目标目录。
 
 ## Linux/macOS：安装脚本
 
@@ -23,12 +25,12 @@ v0.6.0 支持仅配置 `GITRG_WRITE_TOKEN` 即可认证搜索、refs、read 和�
 
 ~~~sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.6.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.7.0 --bin-dir "$HOME/.local/bin"
 ~~~
 
 参数：
 
-- --version VERSION：安装指定 Release，例如 v0.6.0；省略时使用最新稳定 Release。
+- --version VERSION：安装指定 Release，例如 v0.7.0；省略时使用最新稳定 Release。
 - --bin-dir DIR：安装目录；省略时为 $HOME/.local/bin。目录会被创建，已有同名二进制会在校验通过并下载完成后替换。
 - --help：显示参数说明。
 
@@ -37,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
 ~~~sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh -o /tmp/git-rg-install.sh
 less /tmp/git-rg-install.sh
-sh /tmp/git-rg-install.sh --version v0.6.0 --bin-dir "$HOME/.local/bin"
+sh /tmp/git-rg-install.sh --version v0.7.0 --bin-dir "$HOME/.local/bin"
 ~~~
 
 验证安装：
@@ -62,7 +64,7 @@ export PATH="$HOME/.local/bin:$PATH"
 ~~~powershell
 $script = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $script
-& $script -Version v0.6.0
+& $script -Version v0.7.0
 ~~~
 
 参数：
@@ -83,7 +85,7 @@ git-rg --version
 
 ~~~powershell
 $dir = Join-Path $env:LOCALAPPDATA "Programs\git-rg\bin"
-& $script -Version v0.6.0 -InstallDir $dir -NoPathUpdate
+& $script -Version v0.7.0 -InstallDir $dir -NoPathUpdate
 & (Join-Path $dir "git-rg.exe") --version
 ~~~
 
@@ -131,7 +133,7 @@ Scoop manifest 为 amd64/arm64 分别声明 URL 和 SHA-256，并将解压后的
 需要 Go 1.26 或更高版本。固定版本安装：
 
 ~~~sh
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.6.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.7.0
 git-rg --version
 ~~~
 
@@ -154,11 +156,11 @@ go build -trimpath -o ./git-rg ./cmd/git-rg
 
 ## 手工下载与 checksum
 
-Release 页面：[v0.6.0](https://github.com/SamuelSupe/git-rg/releases/tag/v0.6.0)。Release 资产共 9 个，命名规则为：
+Release 页面：[v0.7.0](https://github.com/SamuelSupe/git-rg/releases/tag/v0.7.0)。Release 资产共 9 个，命名规则为：
 
 ~~~text
-git-rg_v0.6.0_{linux|darwin}_{amd64|arm64}.tar.gz
-git-rg_v0.6.0_windows_{amd64|arm64}.zip
+git-rg_v0.7.0_{linux|darwin}_{amd64|arm64}.tar.gz
+git-rg_v0.7.0_windows_{amd64|arm64}.zip
 install.sh
 install.ps1
 checksums.txt
@@ -169,7 +171,7 @@ checksums.txt
 Linux/macOS 示例（这里选择 Linux amd64；macOS 使用 shasum -a 256）：
 
 ~~~sh
-version=v0.6.0
+version=v0.7.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/$version"
 curl -fL -o "$asset" "$base/$asset"
@@ -183,7 +185,7 @@ install -m 0755 "git-rg_${version}_linux_amd64/git-rg" "$HOME/.local/bin/git-rg"
 Windows PowerShell 示例：
 
 ~~~powershell
-$Version = "v0.6.0"
+$Version = "v0.7.0"
 $Asset = "git-rg_" + $Version + "_windows_amd64.zip"
 $Base = "https://github.com/SamuelSupe/git-rg/releases/download/" + $Version
 Invoke-WebRequest -Uri "$Base/$Asset" -OutFile $Asset
@@ -205,7 +207,7 @@ $dir = "git-rg_" + $Version + "_windows_amd64"
 
 ~~~sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.6.0
+  | sh -s -- --version v0.7.0
 ~~~
 
 需要回到旧版本时显式指定已发布版本，例如 --version v0.1.0 或 -Version v0.1.0。旧版本仅保留下载，不再接受普通修复；详见 SUPPORT.md。

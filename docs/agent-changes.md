@@ -1,6 +1,6 @@
 # Agent changes and draft PRs/MRs
 
-Read, preview, and publication are available since **v0.5.0**. **v0.6.0** adds single-token authentication for reading and publishing. See the [installation guide](installation.md) and [v0.6.0 release notes](releases/v0.6.0.md).
+Read, preview, and publication are available since **v0.5.0**. **v0.6.0** adds single-token authentication for reading and publishing. The current release is **v0.7.0**, which also adds [issue creation](issues.md) with the same Agent identity parameters. See the [installation guide](installation.md) and [v0.7.0 release notes](releases/v0.7.0.md).
 
 An external agent supplies the edited text. `git-rg` reads immutable files, validates a JSON plan, previews a diff, and publishes a single commit on a new branch followed by a draft GitHub PR or GitLab MR. It uses the provider API without cloning a target repository, executing its code, or invoking Git. Writes are **off by default**.
 
@@ -62,7 +62,7 @@ Replace the repository with `gitlab:GROUP/PROJECT` for GitLab. Put all flags bef
 
 The timeout includes reading the plan. A pipe that remains open after sending JSON still times out with a `cancelled` error; the command does not wait indefinitely for EOF.
 
-Without either `--dry-run` or an explicit true `--enable-write`, `propose` exits with `write_disabled` before reading the plan, acquiring credentials, or sending requests. There is no persistent setting or environment variable that enables writing. `--enable-write=false` keeps it disabled. `--dry-run` takes precedence over `--enable-write` and uses read credentials only.
+Without either `--dry-run` or an explicit true `--enable-write`, `propose` exits with `write_disabled` before reading the plan, acquiring credentials, or sending requests. There is no persistent setting or environment variable that enables writing. `--enable-write=false` keeps it disabled. `--dry-run` takes precedence over `--enable-write` and uses the read credential lookup described below.
 
 Preview validates the immutable source files and emits a `preview` event with a unified `diff`. It does not certify write permissions, branch availability, current target-branch position, PR availability, or CI. Publishing emits the same preview, checks the current branches, creates the commit and source branch, verifies the commit's parent and complete tree, and creates a draft PR/MR. Ordinary searches and reads never publish anything.
 

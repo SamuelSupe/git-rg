@@ -75,7 +75,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "--help failed"
           }
-          foreach ($command in @("read", "propose")) {
+          foreach ($command in @("read", "propose", "issue")) {
             & "${{ matrix.binary }}" $command --help | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "$command --help failed" }
           }
+          & "${{ matrix.binary }}" issue create --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "issue create --help failed" }

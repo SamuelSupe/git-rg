@@ -13,26 +13,27 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/SamuelSupe/git-rg/internal/agent"
 	"github.com/SamuelSupe/git-rg/internal/output"
 	"github.com/SamuelSupe/git-rg/internal/proposal"
 	"github.com/SamuelSupe/git-rg/internal/provider"
 )
 
 type changeEvent struct {
-	Type       string                  `json:"type"`
-	Schema     int                     `json:"schema_version"`
-	Code       string                  `json:"code,omitempty"`
-	Message    string                  `json:"message,omitempty"`
-	Repository string                  `json:"repository,omitempty"`
-	Commit     string                  `json:"commit,omitempty"`
-	Branch     string                  `json:"branch,omitempty"`
-	Path       string                  `json:"path,omitempty"`
-	Blob       string                  `json:"blob,omitempty"`
-	Mode       string                  `json:"mode,omitempty"`
-	Content    *string                 `json:"content,omitempty"`
-	Diff       string                  `json:"diff,omitempty"`
-	Agent      *proposal.AgentIdentity `json:"agent,omitempty"`
-	Result     *proposal.Result        `json:"result,omitempty"`
+	Type       string           `json:"type"`
+	Schema     int              `json:"schema_version"`
+	Code       string           `json:"code,omitempty"`
+	Message    string           `json:"message,omitempty"`
+	Repository string           `json:"repository,omitempty"`
+	Commit     string           `json:"commit,omitempty"`
+	Branch     string           `json:"branch,omitempty"`
+	Path       string           `json:"path,omitempty"`
+	Blob       string           `json:"blob,omitempty"`
+	Mode       string           `json:"mode,omitempty"`
+	Content    *string          `json:"content,omitempty"`
+	Diff       string           `json:"diff,omitempty"`
+	Agent      *agent.Identity  `json:"agent,omitempty"`
+	Result     *proposal.Result `json:"result,omitempty"`
 }
 
 func runChangeCommand(command string, args []string, stdout, stderr io.Writer) int {
@@ -65,7 +66,7 @@ func runChangeCommand(command string, args []string, stdout, stderr io.Writer) i
 	var enableWrite, dryRun bool
 	var timeout time.Duration
 	var maxRequests int
-	var agent proposal.AgentIdentity
+	var identity agent.Identity
 	flags.StringVar(&providerName, "provider", "", "github or gitlab (required for private hosts)")
 	flags.StringVar(&apiBase, "api-base", "", "override the provider API base URL")
 	flags.StringVar(&authMode, "auth", "auto", "read credential source: auto or env; writes require GITRG_WRITE_TOKEN")
@@ -77,9 +78,9 @@ func runChangeCommand(command string, args []string, stdout, stderr io.Writer) i
 		flags.StringVar(&changesFile, "changes", "", "JSON change plan file; - reads stdin")
 		flags.BoolVar(&enableWrite, "enable-write", false, "explicitly enable remote commits and draft PR/MR creation for this invocation")
 		flags.BoolVar(&dryRun, "dry-run", false, "validate files and emit a diff using read-only requests, even with --enable-write")
-		flags.StringVar(&agent.Name, "agent-name", "", "self-reported agent name included in the PR/MR description")
-		flags.StringVar(&agent.Model, "agent-model", "", "optional agent model; requires an agent name")
-		flags.StringVar(&agent.RunID, "agent-run-id", "", "optional agent run ID; requires an agent name")
+		flags.StringVar(&identity.Name, "agent-name", "", "self-reported agent name included in the PR/MR description")
+		flags.StringVar(&identity.Model, "agent-model", "", "optional agent model; requires an agent name")
+		flags.StringVar(&identity.RunID, "agent-run-id", "", "optional agent run ID; requires an agent name")
 	}
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -120,15 +121,15 @@ func runChangeCommand(command string, args []string, stdout, stderr io.Writer) i
 				return
 			}
 			if plan.Agent == nil {
-				plan.Agent = &proposal.AgentIdentity{}
+				plan.Agent = &agent.Identity{}
 			}
 			switch f.Name {
 			case "agent-name":
-				plan.Agent.Name = agent.Name
+				plan.Agent.Name = identity.Name
 			case "agent-model":
-				plan.Agent.Model = agent.Model
+				plan.Agent.Model = identity.Model
 			case "agent-run-id":
-				plan.Agent.RunID = agent.RunID
+				plan.Agent.RunID = identity.RunID
 			}
 		})
 		if err := plan.Validate(); err != nil {

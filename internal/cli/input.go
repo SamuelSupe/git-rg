@@ -2,15 +2,20 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 
 	"github.com/SamuelSupe/git-rg/internal/proposal"
 )
 
 func readChangePlan(ctx context.Context, filename string) (proposal.Plan, error) {
+	return readCommandInput(ctx, filename, proposal.Decode)
+}
+
+func readCommandInput[T any](ctx context.Context, filename string, decode func(io.Reader) (T, error)) (T, error) {
 	type decoded struct {
-		plan proposal.Plan
-		err  error
+		value T
+		err   error
 	}
 	result := make(chan decoded, 1)
 	stdin := os.Stdin
@@ -27,18 +32,20 @@ func readChangePlan(ctx context.Context, filename string) (proposal.Plan, error)
 		}
 		stopClose := context.AfterFunc(ctx, func() { _ = input.Close() })
 		defer stopClose()
-		plan, err := proposal.Decode(input)
-		result <- decoded{plan, err}
+		value, err := decode(input)
+		result <- decoded{value, err}
 	}()
 	// Some OS file opens/reads cannot be interrupted. The CLI must still exit on
 	// cancellation; a buffered result also lets a late read finish without waiting.
 	select {
 	case <-ctx.Done():
-		return proposal.Plan{}, ctx.Err()
+		var zero T
+		return zero, ctx.Err()
 	case value := <-result:
 		if err := ctx.Err(); err != nil {
-			return proposal.Plan{}, err
+			var zero T
+			return zero, err
 		}
-		return value.plan, value.err
+		return value.value, value.err
 	}
 }

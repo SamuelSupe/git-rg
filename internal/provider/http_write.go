@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// A failed POST can already have committed remotely. Recovery belongs to the
-// proposal workflow, which reads the branch and PR before attempting another write.
+// A failed POST can already have changed remote state. Callers must decide how
+// to recover; automatically replaying a write can create duplicate content.
 func (c *client) postJSON(ctx context.Context, endpoint string, body, out any) error {
 	if !c.writeEnabled {
 		return ErrWriteDisabled
@@ -30,7 +30,7 @@ func (c *client) postJSON(ctx context.Context, endpoint string, body, out any) e
 	req.Header.Set("Accept", "application/json")
 	c.headers(req)
 	httpClient := *c.http
-	// Redirecting a write could forward private source code to another origin.
+	// Redirecting a write could forward private content to another origin.
 	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := httpClient.Do(req)
 	if err != nil {
