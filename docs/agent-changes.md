@@ -1,6 +1,6 @@
 # Agent changes and draft PRs/MRs
 
-Available since **v0.5.0** in the release binaries and source builds. See the [installation guide](installation.md) and [v0.5.0 release notes](releases/v0.5.0.md).
+Read, preview, and publication are available since **v0.5.0**. **v0.6.0** adds single-token authentication for reading and publishing. See the [installation guide](installation.md) and [v0.6.0 release notes](releases/v0.6.0.md).
 
 An external agent supplies the edited text. `git-rg` reads immutable files, validates a JSON plan, previews a diff, and publishes a single commit on a new branch followed by a draft GitHub PR or GitLab MR. It uses the provider API without cloning a target repository, executing its code, or invoking Git. Writes are **off by default**.
 
@@ -94,7 +94,19 @@ This attribution does not change the authenticated platform author or Git commit
 
 ## Credentials
 
-`propose --enable-write` requires a separate `GITRG_WRITE_TOKEN`. It does not fall back to `GITRG_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`, or a `gh`/`glab` login. The dedicated token authenticates both validation reads and publication writes in that invocation. Merely setting it does not enable writing, and search/read/preview commands never use it.
+`propose --enable-write` requires `GITRG_WRITE_TOKEN`. It does not fall back to `GITRG_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`, or a `gh`/`glab` login. This token authenticates both validation reads and publication writes in that invocation. Merely setting it does not enable writing.
+
+Since v0.6.0, search, `refs`, `read`, and `propose --dry-run` also use `GITRG_WRITE_TOKEN` when no applicable read environment token is set. This works with both `--auth auto` and `--auth env`, including self-managed hosts. `GITRG_TOKEN` and applicable cloud read tokens retain priority; the write token is checked before automatic `gh`/`glab` login. API authentication failures do not switch credentials. To retain a separate read identity when upgrading from v0.5.0, set `GITRG_TOKEN` explicitly.
+
+For a single-token workflow, provide only `GITRG_WRITE_TOKEN` through your environment or secret manager, then run:
+
+```sh
+git-rg read --ref main github:OWNER/REPO path/to/file.go
+git-rg propose --dry-run --changes changes.json github:OWNER/REPO
+git-rg propose --enable-write --changes changes.json github:OWNER/REPO
+```
+
+The first two commands make only read requests, even with a write-capable token. The token must have permission to read the target repository and metadata as well as publish changes. Read-only workflows can continue using read-only credentials.
 
 - **GitHub:** a repository-scoped fine-grained token or GitHub App identity with Contents write and Pull requests write permissions. Repository rules can impose additional requirements, such as signed commits or restrictions on workflow-file changes. See [Git trees](https://docs.github.com/en/rest/git/trees#create-a-tree) and [PR creation](https://docs.github.com/en/rest/pulls/pulls#create-a-pull-request).
 - **GitLab:** an identity allowed to create source branches and merge requests, with API access (typically the `api` scope for a PAT or project access token). `write_repository` alone is not REST API write permission. Instance policies and branch protections still apply. See [token scopes](https://docs.gitlab.com/security/tokens/access_token_scopes/), [commits](https://docs.gitlab.com/api/commits/#create-a-commit), and [merge requests](https://docs.gitlab.com/api/merge_requests/#create-a-merge-request).

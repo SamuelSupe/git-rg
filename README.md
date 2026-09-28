@@ -12,7 +12,7 @@
 
 `git-rg` is a small Go command-line tool for remote code search. It resolves a branch, tag, or commit to a fixed commit SHA, reads only the API content needed for the selected search path, and emits agent-friendly NDJSON by default. It supports public, private, and self-managed GitHub/GitLab instances; it does not create a local checkout or download Git history.
 
-**New in v0.5.0: agent-authored changes and draft PRs/MRs, with writes off by default.** An agent supplies a JSON change plan, and `git-rg` validates the original files, previews the diff, and publishes a commit on a new branch through the platform API. See [Agent changes](docs/agent-changes.md) for the input format and recovery contract.
+**New in v0.6.0: one token for reading and proposing changes.** Set only `GITRG_WRITE_TOKEN` to authenticate search, refs, file reads, and previews as well as explicitly enabled publication. An agent supplies a JSON change plan, and `git-rg` validates the original files, previews the diff, and publishes a commit and draft PR/MR on a new branch. See [Agent changes](docs/agent-changes.md) for the input format and recovery contract.
 
 ```sh
 # Read a complete file, its immutable commit SHA, and its blob SHA.
@@ -21,22 +21,21 @@ git-rg read --ref main github:OWNER/REPO path/to/file.go
 # Read-only preview of an agent-generated change plan.
 git-rg propose --dry-run --changes changes.json github:OWNER/REPO
 
-# Every publishing invocation requires this flag and a separate GITRG_WRITE_TOKEN.
+# Every publishing invocation requires this flag and GITRG_WRITE_TOKEN.
 git-rg propose --enable-write --changes changes.json github:OWNER/REPO
 ```
 
-Use `gitlab:GROUP/PROJECT` to create a draft GitLab MR with the same commands. Search, `refs`, `read`, and `--dry-run` use the existing read credentials and never consume `GITRG_WRITE_TOKEN`. Setting a token alone cannot enable writes; `--dry-run` remains read-only even alongside `--enable-write`. Publication returns the branch, commit, PR/MR URL, and `result.complete`. Compilation, tests, and CI status need separate verification.
+Use `gitlab:GROUP/PROJECT` to create a draft GitLab MR with the same commands. Search, `refs`, `read`, and `--dry-run` prefer existing read environment credentials and fall back to `GITRG_WRITE_TOKEN` when those are absent. Setting a token alone cannot enable writes; `--dry-run` remains read-only even alongside `--enable-write`. Publication returns the branch, commit, PR/MR URL, and `result.complete`. Compilation, tests, and CI status need separate verification.
 
 Optional `--agent-name`, `--agent-model`, and `--agent-run-id` flags attach self-reported agent identity to the PR/MR description. The platform author remains the authenticated account. See [Agent identity](docs/agent-changes.md#agent-identity) for JSON input and retry behavior.
 
-## What's new in v0.5.0
+## What's new in v0.6.0
 
-- **Read and propose without cloning:** read complete text files with immutable commit/blob IDs, preview a JSON change plan, and create a draft GitHub PR or GitLab MR on a new branch.
-- **Writes remain opt-in:** each publication requires `--enable-write` and a separate `GITRG_WRITE_TOKEN`. Dry runs use read credentials; conflicting branches are never overwritten.
-- **Agent attribution and recovery:** attach a name, model, and run ID to the description; rerun an identical plan and identity to recover partial publication.
-- **Boundary fixes:** GitLab directory-to-file changes apply deletions first, stdin reads honor the command timeout, and Unicode filenames produce Git-compatible diffs.
+- **Single-token workflows:** search, `refs`, `read`, and `propose --dry-run` can use `GITRG_WRITE_TOKEN` with both `--auth auto` and `--auth env`, including self-managed hosts.
+- **Read credentials keep priority:** `GITRG_TOKEN` and applicable cloud tokens win over the write-token fallback. Automatic `gh`/`glab` login is used only when no applicable environment token is set.
+- **Writes remain opt-in:** publication still requires `--enable-write` and `GITRG_WRITE_TOKEN`. Dry runs stay read-only, and rejected credentials do not trigger a retry with another identity.
 
-See the [v0.5.0 release notes](docs/releases/v0.5.0.md). Existing search/ref behavior and NDJSON schema v1 remain unchanged; no migration is required for read-only users.
+See the [v0.6.0 release notes](docs/releases/v0.6.0.md). Exit codes and NDJSON schema v1 remain unchanged. If you previously relied on a CLI login while exporting `GITRG_WRITE_TOKEN`, set `GITRG_TOKEN` explicitly to keep a separate read identity.
 
 ## Install and run
 
@@ -44,7 +43,7 @@ Linux/macOS, installed to a user-owned directory:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.5.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.6.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -53,7 +52,7 @@ Windows PowerShell:
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.5.0
+& $installer -Version v0.6.0
 git-rg --version
 ```
 
@@ -79,7 +78,7 @@ git-rg refs github:OWNER/REPO
 
 ## Contents
 
-- [What's new in v0.5.0](#whats-new-in-v050)
+- [What's new in v0.6.0](#whats-new-in-v060)
 - [Why no clone](#why-no-clone)
 - [Install](#install)
 - [Repository addresses](#repository-addresses)
@@ -104,29 +103,29 @@ The current providers are GitHub and GitLab. There is no offline mode, local-pat
 
 ## Install
 
-v0.5.0 is the current supported release. Earlier v0.x releases remain downloadable for reproduction or rollback but are EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
+v0.6.0 is the current supported release. Earlier v0.x releases remain downloadable for reproduction or rollback but are EOL; see [SUPPORT.md](SUPPORT.md) for the compatibility and lifecycle policy. A pre-built binary does not need Go at runtime. Source builds and `go install` require Go 1.26 or newer.
 
 ### Pre-built platform matrix
 
 The six combinations below are Tier 1 and are shipped for every release:
 
-| Operating system | Architecture | v0.5.0 asset | Support |
+| Operating system | Architecture | v0.6.0 asset | Support |
 | --- | --- | --- | --- |
-| Linux | amd64 (x86_64) | `git-rg_v0.5.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.5.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64 (x86_64) | `git-rg_v0.5.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.5.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64 (x86_64) | `git-rg_v0.5.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.5.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64 (x86_64) | `git-rg_v0.6.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.6.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64 (x86_64) | `git-rg_v0.6.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.6.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64 (x86_64) | `git-rg_v0.6.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.6.0_windows_arm64.zip` | Tier 1 |
 
-Each archive contains one top-level version directory and one executable. The v0.5.0 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
+Each archive contains one top-level version directory and one executable. The v0.6.0 Release has nine assets: six platform archives, `install.sh`, `install.ps1`, and `checksums.txt`. The checksum file covers both installers and all six archives.
 
 ### GitHub Release (manual)
 
-Download the matching asset from the [v0.5.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.5.0), download `checksums.txt`, and verify before extracting:
+Download the matching asset from the [v0.6.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.6.0), download `checksums.txt`, and verify before extracting:
 
 ```sh
-version=v0.5.0
+version=v0.6.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -144,7 +143,7 @@ The script supports amd64 and arm64, defaults to `$HOME/.local/bin`, and does no
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.5.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.6.0 --bin-dir "$HOME/.local/bin"
 ```
 
 Use `--version VERSION` for a fixed release or omit it for the latest release. Use `--bin-dir DIRECTORY` to select the destination. For a reviewable installation, download the script first, inspect it, and then run it. The complete option list and failure handling are in [docs/installation.md](docs/installation.md).
@@ -156,7 +155,7 @@ The script supports Windows amd64 and arm64. It defaults to `%LOCALAPPDATA%\Prog
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.5.0
+& $installer -Version v0.6.0
 git-rg --version
 ```
 
@@ -193,7 +192,7 @@ With Go 1.26 or newer:
 
 ```sh
 # Pin the supported release.
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.5.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.6.0
 
 # Or follow the latest module version.
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -377,7 +376,7 @@ Warnings such as `index_unavailable` do not change the exit code. `SIGINT` and `
 <a id="permissions--credential-best-practices"></a>
 ## Permissions & credential best practices
 
-`git-rg` sends credentials in the `Authorization: Bearer` request header. The configuration below applies to read commands: use the narrowest read-only identity that can read the target repository and its metadata. The optional `propose --enable-write` command uses a separate `GITRG_WRITE_TOKEN`; see [write credentials](docs/agent-changes.md#credentials).
+`git-rg` sends credentials in the `Authorization: Bearer` request header. For workflows that only read, use the narrowest read-only identity that can read the target repository and its metadata. The optional `propose --enable-write` command requires `GITRG_WRITE_TOKEN`; see [write credentials](docs/agent-changes.md#credentials) for permissions and single-token configuration.
 
 ### Automatic CLI credentials
 
@@ -396,7 +395,7 @@ git-rg --auth env TODO github:OWNER/REPO
 git-rg refs --auth env github:OWNER/REPO
 ```
 
-A non-empty environment token always wins, with the order below unchanged. Otherwise, `git-rg` invokes `gh auth token --hostname HOST`, or checks `glab auth status --hostname HOST` before using `glab auth git-credential get`. It uses the current account for that host and keeps the access token only in memory. Reused credentials retain their existing permissions. GitLab PAT and OAuth credentials are supported; CI job tokens returned by the helper are not. The hidden glab helper must be available and work with your version's credential store and OAuth refresh support. An incompatible helper produces a warning; `git-rg` does not parse credential files or implement token refresh. glab may refresh and save its own OAuth credentials during lookup.
+A non-empty environment token always wins, in the order below. Otherwise, `git-rg` invokes `gh auth token --hostname HOST`, or checks `glab auth status --hostname HOST` before using `glab auth git-credential get`. It uses the current account for that host and keeps the access token only in memory. Reused credentials retain their existing permissions. GitLab PAT and OAuth credentials are supported; CI job tokens returned by the helper are not. The hidden glab helper must be available and work with your version's credential store and OAuth refresh support. An incompatible helper produces a warning; `git-rg` does not parse credential files or implement token refresh. glab may refresh and save its own OAuth credentials during lookup.
 
 Automatic lookup requires HTTPS repository/API URLs with matching origins (including GitHub's `github.com` → `api.github.com` mapping). Self-managed hosts and custom API paths on the expected origin are supported; a different API host or port skips lookup with a warning. Use `GITRG_TOKEN` explicitly for those deployments. Helpers run without a shell or interactive stdin in a temporary working directory, with credential/host overrides and CI auto-login disabled; user configuration directories, proxy settings, and system credential stores remain available. System credential-store access may still require OS authorization.
 
@@ -410,22 +409,24 @@ A missing CLI silently leaves the run anonymous. Failed, unavailable, timed-out,
 ### GitLab
 
 - Prefer a project or group access token, or a restricted PAT, with the documented `read_api` scope and an account/bot that has permission to read the project. See GitLab's [access-token scopes](https://docs.gitlab.com/security/tokens/access_token_scopes/) and [Repository Files API](https://docs.gitlab.com/api/repository_files/).
-- Do not grant `api` or `write_repository` to the credentials used for read commands. Do not assume `read_repository` alone covers every project-metadata, ref, tree, search, archive, and raw-file API used by a run; scope availability also depends on the GitLab edition and instance policy.
+- For workflows that only read, do not grant `api` or `write_repository` to the credentials. Do not assume `read_repository` alone covers every project-metadata, ref, tree, search, archive, and raw-file API used by a run; scope availability also depends on the GitLab edition and instance policy.
 
 ### Token lookup and handling
 
-Environment lookup runs first in both authentication modes:
+Environment lookup runs first in both authentication modes. Since v0.6.0, `GITRG_WRITE_TOKEN` is the final environment fallback for reads:
 
 | Target | Environment variables, in order |
 | --- | --- |
 | Any provider, including self-managed | `GITRG_TOKEN` is always checked first and wins when non-empty. |
-| `github.com` | After `GITRG_TOKEN`, `GITHUB_TOKEN`, then `GH_TOKEN`. These cloud variables are not used for self-managed GitHub. |
-| `gitlab.com` | After `GITRG_TOKEN`, `GITLAB_TOKEN`. This cloud variable is not used for self-managed GitLab. |
-| Self-managed host | Use `GITRG_TOKEN`; no other environment fallback. `auto` then tries the matching CLI login. |
+| `github.com` | After `GITRG_TOKEN`, `GITHUB_TOKEN`, then `GH_TOKEN`, then `GITRG_WRITE_TOKEN`. The cloud-specific variables are not used for self-managed GitHub. |
+| `gitlab.com` | After `GITRG_TOKEN`, `GITLAB_TOKEN`, then `GITRG_WRITE_TOKEN`. The cloud-specific variable is not used for self-managed GitLab. |
+| Self-managed host | `GITRG_TOKEN`, then `GITRG_WRITE_TOKEN`. |
+
+If none is set, `auto` tries the matching CLI login; `env` continues anonymously. A read token that is present but rejected by the API does not trigger a retry with `GITRG_WRITE_TOKEN`.
 
 There is no token CLI flag. Repository URLs and `--api-base` reject embedded credentials, so never put a token in a URL. An unset token may still work for public endpoints; access is decided by the provider. Environment variables are ordinary process inputs—do not promise that a same-user process or diagnostic tool cannot observe them.
 
-Use short-lived tokens, rotate and revoke them, and keep CI values masked/protected or in a secret manager. A long-running agent should use an independent read-only identity and short-lived credentials. NDJSON and text output can contain private source, paths, commit messages, and provider diagnostics; protect stdout, stderr, logs, artifacts, and downstream storage as sensitive data.
+Use short-lived tokens, rotate and revoke them, and keep CI values masked/protected or in a secret manager. A long-running agent that only reads should use a read-only identity and short-lived credentials. NDJSON and text output can contain private source, paths, commit messages, and provider diagnostics; protect stdout, stderr, logs, artifacts, and downstream storage as sensitive data.
 
 Internal CA deployments should install the CA into the system trust chain used by the operating system and Go's standard TLS stack. `git-rg` has no `--insecure` flag; do not bypass certificate verification. SSH-style URLs only parse a repository address and never provide SSH authentication.
 

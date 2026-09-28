@@ -83,21 +83,25 @@ func credentialRepository(providerName, host, apiBase, project string) Repositor
 }
 
 func TestResolveCredentialsEnvironmentTokenSkipsHelper(t *testing.T) {
-	clearCredentialEnvironment(t)
-	t.Setenv("GITRG_TOKEN", "generic-token")
-	t.Setenv("GITHUB_TOKEN", "github-token")
-	t.Setenv("GH_TOKEN", "gh-token")
-	repo := credentialRepository("github", "github.com", "https://api.github.com", "octocat/Hello-World")
-	runner := &credentialRunner{}
-	token, warning, err := resolveCredentials(context.Background(), repo, "auto", credentialHelperLookup(t.TempDir()), runner.run)
-	if err != nil {
-		t.Fatalf("resolveCredentials() error = %v", err)
-	}
-	if token != "generic-token" || warning != "" {
-		t.Fatalf("token/warning = %q/%q, want generic-token and empty warning", token, warning)
-	}
-	if len(runner.calls) != 0 {
-		t.Fatalf("helper call count = %d, want none when an environment token is set", len(runner.calls))
+	for _, name := range []string{"GITRG_TOKEN", "GITRG_WRITE_TOKEN"} {
+		for _, mode := range []string{"auto", "env"} {
+			t.Run(name+"/"+mode, func(t *testing.T) {
+				clearCredentialEnvironment(t)
+				t.Setenv(name, "environment-token")
+				repo := credentialRepository("github", "github.com", "https://api.github.com", "octocat/Hello-World")
+				runner := &credentialRunner{}
+				token, warning, err := resolveCredentials(context.Background(), repo, mode, credentialHelperLookup(t.TempDir()), runner.run)
+				if err != nil {
+					t.Fatalf("resolveCredentials() error = %v", err)
+				}
+				if token != "environment-token" || warning != "" {
+					t.Fatalf("token/warning = %q/%q, want environment-token and empty warning", token, warning)
+				}
+				if len(runner.calls) != 0 {
+					t.Fatalf("helper call count = %d, want none when an environment token is set", len(runner.calls))
+				}
+			})
+		}
 	}
 }
 

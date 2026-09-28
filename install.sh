@@ -18,7 +18,7 @@ usage() {
         'Install a verified git-rg release without sudo.' \
         '' \
         'Options:' \
-        '  --version VERSION  Release tag (v0.5.0 or 0.5.0); default: latest' \
+        '  --version VERSION  Release tag (v0.6.0 or 0.6.0); default: latest' \
         '  --bin-dir DIRECTORY Install directory; default: $HOME/.local/bin' \
         '  -h, --help         Show this help'
 }
@@ -107,7 +107,7 @@ fi
 validate_version() {
     candidate=$1
     if ! printf '%s\n' "$candidate" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
-        die "invalid release version: $candidate (expected v0.5.0 or 0.5.0)"
+        die "invalid release version: $candidate (expected v0.6.0 or 0.6.0)"
     fi
 }
 

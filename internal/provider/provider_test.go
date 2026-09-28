@@ -617,6 +617,7 @@ func requireProviderResourceLimit(t *testing.T, err error) {
 
 func TestTokenPrecedence(t *testing.T) {
 	t.Setenv("GITRG_TOKEN", "generic")
+	t.Setenv("GITRG_WRITE_TOKEN", "write")
 	t.Setenv("GITHUB_TOKEN", "github")
 	t.Setenv("GH_TOKEN", "gh")
 	t.Setenv("GITLAB_TOKEN", "gitlab")
@@ -638,11 +639,24 @@ func TestTokenPrecedence(t *testing.T) {
 	if got := tokenFor(gitlabCloud); got != "gitlab" {
 		t.Fatalf("tokenFor(gitlab) = %q, want gitlab", got)
 	}
-	if got := tokenFor(githubEnterprise); got != "" {
-		t.Fatalf("tokenFor(githubEnterprise) = %q, want empty", got)
+	if got := tokenFor(githubEnterprise); got != "write" {
+		t.Fatalf("tokenFor(githubEnterprise) = %q, want write", got)
 	}
-	if got := tokenFor(gitlabSelfHosted); got != "" {
-		t.Fatalf("tokenFor(gitlabSelfHosted) = %q, want empty", got)
+	if got := tokenFor(gitlabSelfHosted); got != "write" {
+		t.Fatalf("tokenFor(gitlabSelfHosted) = %q, want write", got)
+	}
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITLAB_TOKEN", "")
+	for _, repo := range []Repository{githubCloud, githubEnterprise, gitlabCloud, gitlabSelfHosted} {
+		if got := tokenFor(repo); got != "write" {
+			t.Fatalf("tokenFor(%s) = %q, want write", repo.APIBase, got)
+		}
+	}
+	t.Setenv("GITRG_WRITE_TOKEN", "")
+	for _, repo := range []Repository{githubCloud, githubEnterprise, gitlabCloud, gitlabSelfHosted} {
+		if got := tokenFor(repo); got != "" {
+			t.Fatalf("tokenFor(%s) = %q, want empty", repo.APIBase, got)
+		}
 	}
 }
 

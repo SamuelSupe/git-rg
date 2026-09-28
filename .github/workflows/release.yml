@@ -188,10 +188,10 @@ jobs:
           if ($reportedVersion -ne "git-rg ${{ github.ref_name }}") {
             throw "unexpected installed version: $reportedVersion"
           }
-      - name: Search public GitHub repository
+      - name: Search and list GitHub refs with one token
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITRG_WRITE_TOKEN: ${{ github.token }}
         run: |
           $binary = if ("${{ matrix.goos }}" -eq "windows") {
             Join-Path $env:RUNNER_TEMP "git-rg-bin/git-rg.exe"
@@ -200,6 +200,8 @@ jobs:
           }
           & $binary --mode exact --format text --max-results 1 -F "Hello World!" github:octocat/Hello-World | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "GitHub smoke failed" }
+          & $binary refs --auth env github:octocat/Hello-World | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "GitHub refs smoke failed" }
       - name: Search public GitLab repository
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         shell: bash
@@ -210,13 +212,17 @@ jobs:
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITRG_WRITE_TOKEN: ${{ github.token }}
         run: |
           $binary = Join-Path $env:RUNNER_TEMP "git-rg-bin/git-rg"
           foreach ($case in @(
             @{ repository = "github:$env:GITHUB_REPOSITORY"; path = "go.mod"; base = "main" },
             @{ repository = "gitlab:gitlab-org/gitlab-test"; path = "README.md"; base = "master" }
           )) {
+            # The GitHub job token must never be sent to GitLab.
+            if ($case.repository.StartsWith("gitlab:")) {
+              Remove-Item Env:GITRG_WRITE_TOKEN -ErrorAction SilentlyContinue
+            }
             $fileOutput = & $binary read --auth env $case.repository $case.path
             if ($LASTEXITCODE -ne 0) { throw "read failed for $($case.repository)" }
             $file = $fileOutput | ConvertFrom-Json

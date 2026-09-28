@@ -28,12 +28,16 @@ func tokenFor(repository Repository) string {
 		if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 			return token
 		}
-		return os.Getenv("GH_TOKEN")
+		if token := os.Getenv("GH_TOKEN"); token != "" {
+			return token
+		}
 	}
 	if repository.Provider == "gitlab" && apiHost == "gitlab.com" {
-		return os.Getenv("GITLAB_TOKEN")
+		if token := os.Getenv("GITLAB_TOKEN"); token != "" {
+			return token
+		}
 	}
-	return ""
+	return os.Getenv("GITRG_WRITE_TOKEN")
 }
 
 func setGitHubHeaders(token string) func(*http.Request) {

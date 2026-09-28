@@ -66,6 +66,7 @@ func TestRunTextDiagnosticsStayOnStderr(t *testing.T) {
 
 func TestRunAuthWarningIsConsistentForSearchAndRefs(t *testing.T) {
 	t.Setenv("GITRG_TOKEN", "")
+	t.Setenv("GITRG_WRITE_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	searchServer := newCommitInfoTestServer(t)
@@ -120,6 +121,7 @@ func TestRunAuthWarningIsConsistentForSearchAndRefs(t *testing.T) {
 
 func TestRunAuthEnvSuppressesAutomaticWarningForSearchAndRefs(t *testing.T) {
 	t.Setenv("GITRG_TOKEN", "")
+	t.Setenv("GITRG_WRITE_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	searchServer := newCommitInfoTestServer(t)
@@ -150,49 +152,43 @@ func TestRunAuthEnvSuppressesAutomaticWarningForSearchAndRefs(t *testing.T) {
 	}
 }
 
-func TestRunSearchPassesConfiguredTokenAndDoesNotRetryUnauthorized(t *testing.T) {
-	t.Setenv("GITRG_TOKEN", "known-test-token")
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		if got := r.Header.Get("Authorization"); got != "Bearer known-test-token" {
-			t.Errorf("Authorization = %q, want Bearer known-test-token", got)
+func TestRunSearchAndRefsPassConfiguredTokenAndDoNotRetryUnauthorized(t *testing.T) {
+	for _, command := range []string{"search", "refs"} {
+		for _, readToken := range []string{"read-token", ""} {
+			name, wantToken := "read_token_preferred", readToken
+			if readToken == "" {
+				name, wantToken = "write_token_only", "write-token"
+			}
+			t.Run(command+"/"+name, func(t *testing.T) {
+				t.Setenv("GITRG_TOKEN", readToken)
+				t.Setenv("GITRG_WRITE_TOKEN", "write-token")
+				var requests atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requests.Add(1)
+					if got := r.Header.Get("Authorization"); got != "Bearer "+wantToken {
+						t.Errorf("Authorization = %q, want Bearer %s", got, wantToken)
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_, _ = io.WriteString(w, `{"message":"unauthorized"}`)
+				}))
+				defer server.Close()
+				args := []string{"--api-base", server.URL, "--auth", "env"}
+				if command == "refs" {
+					args = append([]string{"refs"}, args...)
+				} else {
+					args = append(args, "--no-cache", "needle")
+				}
+				var stdout, stderr bytes.Buffer
+				status := Run(append(args, "github:octocat/Hello-World"), &stdout, &stderr)
+				if status != 2 {
+					t.Fatalf("status = %d, stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+				}
+				if got := requests.Load(); got != 1 {
+					t.Fatalf("unauthorized requests = %d, want one request without switching credentials", got)
+				}
+			})
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = io.WriteString(w, `{"message":"unauthorized"}`)
-	}))
-	defer server.Close()
-	var stdout, stderr bytes.Buffer
-	status := Run([]string{"--api-base", server.URL, "--auth", "env", "--no-cache", "needle", "github:octocat/Hello-World"}, &stdout, &stderr)
-	if status != 2 {
-		t.Fatalf("search status = %d, stdout=%q stderr=%q", status, stdout.String(), stderr.String())
-	}
-	if got := requests.Load(); got != 1 {
-		t.Fatalf("unauthorized search requests = %d, want one request without anonymous retry", got)
-	}
-}
-
-func TestRunRefsPassesConfiguredTokenAndDoesNotRetryUnauthorized(t *testing.T) {
-	t.Setenv("GITRG_TOKEN", "known-test-token")
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		if got := r.Header.Get("Authorization"); got != "Bearer known-test-token" {
-			t.Errorf("Authorization = %q, want Bearer known-test-token", got)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = io.WriteString(w, `{"message":"unauthorized"}`)
-	}))
-	defer server.Close()
-	var stdout, stderr bytes.Buffer
-	status := Run([]string{"refs", "--api-base", server.URL, "--auth", "env", "github:octocat/Hello-World"}, &stdout, &stderr)
-	if status != 2 {
-		t.Fatalf("refs status = %d, stdout=%q stderr=%q", status, stdout.String(), stderr.String())
-	}
-	if got := requests.Load(); got != 1 {
-		t.Fatalf("unauthorized refs requests = %d, want one request without anonymous retry", got)
 	}
 }
 

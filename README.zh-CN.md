@@ -12,7 +12,7 @@
 
 `git-rg` 是一个用 Go 编写的远程代码搜索命令行工具。它会先把分支、tag 或 commit 解析为固定的 commit SHA，再按所选搜索路径从 API 按需读取内容，默认输出适合 agent 消费的 NDJSON。它支持公开、私有以及自建的 GitHub/GitLab 实例；不会创建本地工作树，也不会下载 Git 历史。
 
-**v0.5.0 新增：agent 修改代码并创建草稿 PR/MR，写入默认关闭。** agent 生成 JSON 变更计划，`git-rg` 校验原始文件、预览 diff，并通过平台 API 提交到新分支。详见[使用说明与变更格式](docs/agent-changes.md)。
+**v0.6.0 新增：一个 token 即可读取和提交变更。** 仅配置 `GITRG_WRITE_TOKEN`，即可认证搜索、refs、文件读取、预览及显式启用的发布操作。agent 生成 JSON 变更计划，`git-rg` 校验原始文件、预览 diff，并在新分支上创建 commit 和草稿 PR/MR。详见[使用说明与变更格式](docs/agent-changes.md)。
 
 ```sh
 # 只读：返回完整文件、固定 commit SHA 和 blob SHA。
@@ -21,23 +21,22 @@ git-rg read --ref main github:OWNER/REPO path/to/file.go
 # 只读预览，changes.json 由 agent 根据读取结果生成。
 git-rg propose --dry-run --changes changes.json github:OWNER/REPO
 
-# 每次写入都必须显式启用，并单独提供 GITRG_WRITE_TOKEN。
+# 每次写入都必须显式启用，并提供 GITRG_WRITE_TOKEN。
 git-rg propose --enable-write --changes changes.json github:OWNER/REPO
 ```
 
-GitLab 使用 `gitlab:GROUP/PROJECT`，相同命令会创建草稿 MR。普通搜索、`refs`、`read` 和 `--dry-run` 使用原有读取凭证，不读取 `GITRG_WRITE_TOKEN`。仅设置 token 不会打开写入能力；即使同时传入 `--enable-write`，`--dry-run` 仍然只读。创建结果会返回分支、commit、PR/MR 链接和 `result.complete`，编译、测试与 CI 状态需要另行验证。
+GitLab 使用 `gitlab:GROUP/PROJECT`，相同命令会创建草稿 MR。普通搜索、`refs`、`read` 和 `--dry-run` 优先使用原有读取环境变量凭证，这些变量未设置时回退使用 `GITRG_WRITE_TOKEN`。仅设置 token 不会打开写入能力；即使同时传入 `--enable-write`，`--dry-run` 仍然只读。创建结果会返回分支、commit、PR/MR 链接和 `result.complete`，编译、测试与 CI 状态需要另行验证。
 
 可选参数 `--agent-name`、`--agent-model`、`--agent-run-id` 会把 Agent 自报的身份信息附加到 PR/MR 描述。平台作者仍是凭证对应的账号。JSON 输入格式和重试规则见 [Agent 身份说明](docs/agent-changes.md#agent-identity)。
 
-<a id="whats-new-in-v050"></a>
-## v0.5.0 更新
+<a id="whats-new-in-v060"></a>
+## v0.6.0 更新
 
-- **不 clone 即可读取和提交变更**：读取完整文本及固定 commit/blob SHA，预览 JSON 变更计划，并在新分支上创建草稿 GitHub PR 或 GitLab MR。
-- **写入默认关闭**：每次发布都要求 `--enable-write` 和独立的 `GITRG_WRITE_TOKEN`；预览使用读取凭证，不覆盖冲突分支。
-- **Agent 身份与失败恢复**：在描述中附加名称、模型和运行 ID；相同计划及身份可恢复未完成的发布。
-- **边界修复**：GitLab 目录替换为文件时先删除子文件，stdin 读取遵守整体超时，Unicode 文件名生成兼容 Git 的 diff。
+- **单 token 工作流**：搜索、`refs`、`read` 和 `propose --dry-run` 均可使用 `GITRG_WRITE_TOKEN`，支持 `--auth auto`、`--auth env` 及自建实例。
+- **保留读取凭证优先级**：`GITRG_TOKEN` 和适用的云端 token 优先于写入 token；所有适用环境变量均未设置时才复用 `gh/glab` 登录。
+- **写入默认关闭**：发布仍需 `--enable-write` 和 `GITRG_WRITE_TOKEN`，dry-run 始终只读，凭证被拒绝后不会切换身份重试。
 
-详见 [v0.5.0 发布说明](docs/releases/v0.5.0.md)。已有搜索、ref 查询及 NDJSON schema v1 保持兼容，只读用户无需迁移。
+详见 [v0.6.0 发布说明](docs/releases/v0.6.0.md)。退出码及 NDJSON schema v1 保持兼容。如果之前同时配置了 `GITRG_WRITE_TOKEN` 并依赖 CLI 登录读取，请显式配置 `GITRG_TOKEN` 以保留独立的读取身份。
 
 ## 安装并运行
 
@@ -45,7 +44,7 @@ Linux/macOS，安装到用户目录：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.5.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.6.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -54,7 +53,7 @@ Windows PowerShell：
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.5.0
+& $installer -Version v0.6.0
 git-rg --version
 ```
 
@@ -80,7 +79,7 @@ git-rg refs github:OWNER/REPO
 
 ## 目录
 
-- [v0.5.0 更新](#whats-new-in-v050)
+- [v0.6.0 更新](#whats-new-in-v060)
 - [为什么不需要 clone](#why-no-clone)
 - [安装](#install)
 - [仓库地址](#repository-addresses)
@@ -107,29 +106,29 @@ git-rg refs github:OWNER/REPO
 <a id="install"></a>
 ## 安装
 
-v0.5.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
+v0.6.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
 
 ### 预构建平台矩阵
 
 以下六种组合属于 Tier 1，每个 Release 都会提供：
 
-| 操作系统 | 架构 | v0.5.0 资产 | 支持级别 |
+| 操作系统 | 架构 | v0.6.0 资产 | 支持级别 |
 | --- | --- | --- | --- |
-| Linux | amd64（x86_64） | `git-rg_v0.5.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.5.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64（x86_64） | `git-rg_v0.5.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.5.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64（x86_64） | `git-rg_v0.5.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.5.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64（x86_64） | `git-rg_v0.6.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.6.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64（x86_64） | `git-rg_v0.6.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.6.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64（x86_64） | `git-rg_v0.6.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.6.0_windows_arm64.zip` | Tier 1 |
 
-每个 archive 包含一个顶层版本目录和一个可执行文件。v0.5.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
+每个 archive 包含一个顶层版本目录和一个可执行文件。v0.6.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
 
 ### GitHub Release（手工下载）
 
-从 [v0.5.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.5.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
+从 [v0.6.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.6.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
 
 ```sh
-version=v0.5.0
+version=v0.6.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -147,7 +146,7 @@ macOS 如果没有 `sha256sum`，可改用 `shasum -a 256`；按机器选择 `da
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.5.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.6.0 --bin-dir "$HOME/.local/bin"
 ```
 
 使用 `--version VERSION` 固定版本；省略时使用 latest。使用 `--bin-dir DIRECTORY` 指定安装目录。需要可审阅的安装过程时，先下载并检查脚本，再执行它。完整参数和失败处置见 [docs/installation.md](docs/installation.md)。
@@ -159,7 +158,7 @@ curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.5.0
+& $installer -Version v0.6.0
 git-rg --version
 ```
 
@@ -196,7 +195,7 @@ scoop uninstall git-rg
 
 ```sh
 # 固定到当前支持版本。
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.5.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.6.0
 
 # 或跟随最新模块版本。
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -388,7 +387,7 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 <a id="permissions--credential-best-practices"></a>
 ## Permissions & credential best practices / 权限与凭证最佳实践
 
-`git-rg` 在 `Authorization: Bearer` 请求头中发送凭证。以下配置适用于读取命令，请使用能够读取目标仓库及其元数据的最小只读身份。可选的 `propose --enable-write` 使用独立的 `GITRG_WRITE_TOKEN`，权限要求见[写入文档](docs/agent-changes.md#credentials)。
+`git-rg` 在 `Authorization: Bearer` 请求头中发送凭证。对于只需读取的工作流，请使用能够读取目标仓库及其元数据的最小只读身份。可选的 `propose --enable-write` 要求提供 `GITRG_WRITE_TOKEN`，权限要求与单 token 配置见[写入文档](docs/agent-changes.md#credentials)。
 
 ### 自动复用 CLI 凭证
 
@@ -421,22 +420,24 @@ CLI 未安装时静默匿名访问。未登录、读取失败、超时或输出�
 ### GitLab
 
 - 优先使用 project/group access token，或受限 PAT，授予文档中的 `read_api` scope，并确保账号/机器人具备读取该项目的权限。参阅 GitLab 的[访问 token scope](https://docs.gitlab.com/security/tokens/access_token_scopes/)和[Repository Files API](https://docs.gitlab.com/api/repository_files/)。
-- 不要为读取命令使用的凭证授予 `api` 或 `write_repository`。不要把 `read_repository` 单独当作覆盖所有 project metadata、ref、tree、search、archive 和 raw-file API 的保证；可用 scope 还取决于 GitLab 版本和实例策略。
+- 对于只需读取的工作流，不要为凭证授予 `api` 或 `write_repository`。不要把 `read_repository` 单独当作覆盖所有 project metadata、ref、tree、search、archive 和 raw-file API 的保证；可用 scope 还取决于 GitLab 版本和实例策略。
 
 ### Token 读取顺序与处理
 
-两种认证模式都先按以下顺序读取环境变量：
+两种认证模式都先按以下顺序读取环境变量。从 v0.6.0 开始，`GITRG_WRITE_TOKEN` 作为读取操作的最后一个环境变量回退：
 
 | 目标 | 环境变量顺序 |
 | --- | --- |
 | 任一 provider，包括自建实例 | 总是先检查 `GITRG_TOKEN`；非空时它优先。 |
-| `github.com` | 在 `GITRG_TOKEN` 之后读取 `GITHUB_TOKEN`，再读取 `GH_TOKEN`。这两个云端变量不会用于自建 GitHub。 |
-| `gitlab.com` | 在 `GITRG_TOKEN` 之后读取 `GITLAB_TOKEN`。该云端变量不会用于自建 GitLab。 |
-| 自建 host | 使用 `GITRG_TOKEN`；没有其他后备环境变量。`auto` 随后尝试对应 CLI 登录。 |
+| `github.com` | 在 `GITRG_TOKEN` 之后依次读取 `GITHUB_TOKEN`、`GH_TOKEN`、`GITRG_WRITE_TOKEN`。云端专用变量不会用于自建 GitHub。 |
+| `gitlab.com` | 在 `GITRG_TOKEN` 之后依次读取 `GITLAB_TOKEN`、`GITRG_WRITE_TOKEN`。云端专用变量不会用于自建 GitLab。 |
+| 自建 host | 先读取 `GITRG_TOKEN`，再读取 `GITRG_WRITE_TOKEN`。 |
+
+这些变量都未设置时，`auto` 尝试对应 CLI 登录，`env` 则匿名继续。已设置的读取 token 若被 API 拒绝，不会改用 `GITRG_WRITE_TOKEN` 重试。
 
 没有 token CLI 参数。仓库 URL 和 `--api-base` 会拒绝内嵌凭证，所以不要把 token 放进 URL。未设置 token 时公开 endpoint 仍可能可访问；最终由 provider 决定权限。环境变量是普通的进程输入，不要承诺同一用户的其他进程或诊断工具无法观察它。
 
-使用短有效期 token，定期轮换并及时撤销；CI 中使用 masked/protected secret，或使用 secret manager。长期运行的 agent 应使用独立的只读身份和短期凭证。NDJSON 和 text 输出可能包含私有源码、路径、commit message 及 provider 诊断信息；请把 stdout、stderr、日志、构建产物和下游存储都按敏感数据保护。
+使用短有效期 token，定期轮换并及时撤销；CI 中使用 masked/protected secret，或使用 secret manager。长期运行且只需读取的 agent 应使用只读身份和短期凭证。NDJSON 和 text 输出可能包含私有源码、路径、commit message 及 provider 诊断信息；请把 stdout、stderr、日志、构建产物和下游存储都按敏感数据保护。
 
 内部 CA 环境应把 CA 安装到操作系统和 Go 标准 TLS 栈所使用的系统信任链中。`git-rg` 没有 `--insecure` 参数，不要绕过证书校验。SSH 风格 URL 只解析仓库地址，不提供 SSH 认证。
 

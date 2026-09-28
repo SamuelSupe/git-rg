@@ -62,7 +62,7 @@ func TestProposeRejectsInvalidPublicationBeforeRemoteRequests(t *testing.T) {
 
 func TestRunProposalWorkflow(t *testing.T) {
 	for _, platform := range []string{"github", "gitlab"} {
-		for _, scenario := range []string{"success", "commit_reply_lost", "pr_failed", "pr_reply_lost", "base_moved", "branch_conflict", "unexpected_symlink", "blob_conflict", "create_over_symlink", "directory_collision", "directory_to_file", "agent_plan", "agent_flags"} {
+		for _, scenario := range []string{"success", "write_token_only", "commit_reply_lost", "pr_failed", "pr_reply_lost", "base_moved", "branch_conflict", "unexpected_symlink", "blob_conflict", "create_over_symlink", "directory_collision", "directory_to_file", "agent_plan", "agent_flags"} {
 			t.Run(platform+"/"+scenario, func(t *testing.T) {
 				t.Setenv("GITRG_TOKEN", "read-token")
 				t.Setenv("GITRG_WRITE_TOKEN", "write-token")
@@ -70,6 +70,12 @@ func TestRunProposalWorkflow(t *testing.T) {
 					"hello.go": {"old\n", "100755"}, "remove.txt": {"obsolete\n", "100644"}, "keep.txt": {"keep\n", "100644"},
 					"shortcut": {"keep.txt", "120000"}, "module": {"submodule", "160000"},
 				}}
+				if scenario == "write_token_only" {
+					for _, name := range []string{"GITRG_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN"} {
+						t.Setenv(name, "")
+					}
+					api.auth = "write-token"
+				}
 				if scenario == "directory_to_file" {
 					api.files["replace/child.txt"] = proposalFile{"old\n", "100644"}
 				}

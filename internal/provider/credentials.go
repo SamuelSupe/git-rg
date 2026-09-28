@@ -16,7 +16,7 @@ import (
 
 const credentialTimeout = 10 * time.Second
 
-// WriteCredentials requires an explicit identity separate from search credentials.
+// WriteCredentials requires GITRG_WRITE_TOKEN and never falls back to read credentials.
 func WriteCredentials() (string, error) {
 	token := os.Getenv("GITRG_WRITE_TOKEN")
 	if !validCredentialToken(token) {
