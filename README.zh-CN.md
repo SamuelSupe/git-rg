@@ -8,9 +8,13 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+[文档导航](docs/README.md) · [安装](docs/installation.md) · [Agent 变更](docs/agent-changes.md) · [创建 issue](docs/issues.md) · [支持策略](SUPPORT.md)
+
 > 在不可变 commit 上搜索 GitHub 和 GitLab 仓库，不 clone 目标仓库。
 
 `git-rg` 是一个用 Go 编写的远程代码搜索命令行工具。它会先把分支、tag 或 commit 解析为固定的 commit SHA，再按所选搜索路径从 API 按需读取内容，默认输出适合 agent 消费的 NDJSON。它支持公开、私有以及自建的 GitHub/GitLab 实例；不会创建本地工作树，也不会下载 Git 历史。
+
+**Gitee 开发预览（本地改动，尚未发布）**：`gitee:OWNER/REPO` 可用于搜索、refs、完整文件读取、提案预览、批量提交及草稿 PR、issue 创建。写入默认关闭，远端 `main` 和 v0.7.0 安装包尚不包含此功能，详见 [Gitee 使用说明与接口差异](docs/gitee.md)。
 
 **v0.7.0 新增：创建 GitHub/GitLab issue，并携带 Agent 身份。** 可先在本地预览正文，再显式启用创建。示例和权限见[issue 创建说明](docs/issues.md)。原有读取与提案工作流继续支持单 token： 仅配置 `GITRG_WRITE_TOKEN`，即可认证搜索、refs、文件读取、预览及显式启用的发布操作。agent 生成 JSON 变更计划，`git-rg` 校验原始文件、预览 diff，并在新分支上创建 commit 和草稿 PR/MR。详见[使用说明与变更格式](docs/agent-changes.md)。
 
@@ -98,6 +102,7 @@ git-rg refs github:OWNER/REPO
 
 - [v0.7.0 更新](#whats-new-in-v070)
 - [创建 issue](#create-an-issue)
+- [Gitee（开发预览）](docs/gitee.md)
 - [为什么不需要 clone](#why-no-clone)
 - [安装](#install)
 - [仓库地址](#repository-addresses)
@@ -119,7 +124,7 @@ git-rg refs github:OWNER/REPO
 - `exact` 仍可能读取所选 commit 中所有符合条件的普通文本文件。“不 clone”省去工作树和历史传输，并不表示完整搜索不读取仓库内容或不需要网络。
 - SSH 风格的 clone URL 只用于解析地址。`git-rg` 不使用 SSH 认证，也不使用 Git 传输。
 
-当前 provider 只有 GitHub 和 GitLab。不提供离线搜索、本地路径搜索、历史搜索或通用 Git 服务器协议。搜索和 ref 查询保持只读；写操作必须通过显式启用的写入命令执行。预构建二进制通过 GitHub Releases 发布。
+v0.7.0 发布版支持 GitHub 和 GitLab，本地开发改动还包含尚未发布的 [Gitee 支持](docs/gitee.md)。不提供离线搜索、本地路径搜索、历史搜索或通用 Git 服务器协议。搜索和 ref 查询保持只读；写操作必须通过显式启用的写入命令执行。预构建二进制通过 GitHub Releases 发布。
 
 <a id="install"></a>
 ## 安装
@@ -230,6 +235,8 @@ go build -trimpath -o ./git-rg ./cmd/git-rg
 
 其他 `GOOS/GOARCH` 组合可以用 Go 1.26 构建，但属于 best effort，不提供 Tier 1 archive 或专门的 Release smoke 保证。
 
+未注入版本的源码构建显示 `git-rg dev`；`go install` 显示模块版本。使用 Gitee 需要包含适配器改动的源码；这些改动发布前，仅 clone 已发布的 `main` 分支还不能获得 Gitee 功能。详见 [Gitee 可用范围](docs/gitee.md)。
+
 <a id="repository-addresses"></a>
 ## 仓库地址
 
@@ -238,11 +245,14 @@ go build -trimpath -o ./git-rg ./cmd/git-rg
 ```text
 github:OWNER/REPO
 gitlab:GROUP/PROJECT
+gitee:OWNER/REPO
 https://HOST/OWNER/REPO.git
 git@HOST:GROUP/PROJECT.git
 ```
 
 公开云服务示例：
+
+`gitee:` 简写和 Gitee URL 需要包含未发布适配器的构建，示例见 [Gitee 文档](docs/gitee.md#commands)。
 
 ```sh
 git-rg TODO github:OWNER/REPO
@@ -263,7 +273,9 @@ git-rg --provider gitlab \
   TODO git@gitlab.example.com:GROUP/PROJECT.git
 ```
 
-`--api-base` 必须是绝对的 `http://` 或 `https://` URL，不能含用户信息、查询串或片段。生产环境使用 HTTPS。GitHub 路径必须是 `OWNER/REPO`；GitLab 路径可以包含多级 group。
+自建 Gitee 使用 `--provider gitee`，默认 API 基址是 `https://HOST/api/v5`；实例必须提供 [Gitee 文档](docs/gitee.md)列出的接口。
+
+`--api-base` 必须是绝对的 `http://` 或 `https://` URL，不能含用户信息、查询串或片段。生产环境使用 HTTPS。GitHub 和 Gitee 路径必须是 `OWNER/REPO`；GitLab 路径可以包含多级 group。
 
 <a id="search-modes-and-completeness"></a>
 ## 搜索模式与完整性
@@ -281,6 +293,8 @@ git-rg --provider gitlab \
 显式 glob 缩小搜索范围时，exact/auto 在应用下载门槛前利用通过校验的 blob 缓存；全部命中时，无需 archive、索引或 blob 下载。对于剩余未命中的文件，可以直接下载最多 8 个 blob：已知大小合计须不超过 8 MiB；缺失多个文件时，每个文件须有已知大小，且数量不超过 tree 的四分之一。单个大小未知的缺失文件也可使用该路径。请求预算须为重试留出余量，这些下载门槛不限制缓存命中。发现超过 8 个未命中文件后便停止探测，由原有 archive/索引策略处理剩余文件。blob 预读失败时回退 archive，已成功读取的文件不会重复输出。
 
 `indexed` 要求 Go 能从模式中提取出非空字面前缀。GitHub 和 GitLab 的候选请求最多 10 页、每页 100 项，并受 8 MiB 候选路径预算限制；provider 的覆盖范围仍可能不同。不要假设所有 indexed search 都可用或完整。
+
+Gitee 支持 `auto` 和 `exact`。`auto` 不使用索引加速，继续执行完整 tree/archive/blob 扫描；`indexed` 返回 `indexed_search_unsupported`，退出码为 `2`。
 
 完整审计请使用 `exact`；`indexed` 的不完整语义是固定契约；`auto` 会在结果上限或硬错误之外，最终覆盖整个 commit 做精确扫描。
 
@@ -315,7 +329,7 @@ git-rg refs --kind branch gitlab:GROUP/PROJECT
 git-rg refs --kind tag gitlab:GROUP/PROJECT
 ```
 
-参数为 `--kind all|branch|tag`、`--format ndjson|text`、`--max-requests NUM`、`--provider github|gitlab`、`--api-base URL`、`--auth auto|env` 和 `--timeout DURATION`。完整列表每页最多 100 项。后续页失败时返回 error，不会把部分列表标为完整。
+参数为 `--kind all|branch|tag`、`--format ndjson|text`、`--max-requests NUM`、`--provider github|gitlab|gitee`、`--api-base URL`、`--auth auto|env` 和 `--timeout DURATION`。完整列表每页最多 100 项。后续页失败时返回 error，不会把部分列表标为完整。
 
 NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 
@@ -348,9 +362,9 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 | `--format FORMAT` | `ndjson` | 选择 `ndjson` 或 `text`。 |
 | `--max-results NUM` | `200` | 最多输出的匹配行数；`0` 表示不限制。 |
 | `--max-requests NUM` | `100` | 远端请求预算，包含重试和重定向；`0` 表示不限制。 |
-| `--provider NAME` | 自动判断 | `github` 或 `gitlab`；私有/自建 host 必须指定。 |
+| `--provider NAME` | 自动判断 | `github`、`gitlab` 或尚未发布的 `gitee`；私有/自建 host 必须指定。 |
 | `--api-base URL` | 自动判断 | 覆盖 provider API 基址。 |
-| `--auth MODE` | `auto` | 先使用环境变量，再复用目标站点的 `gh`/`glab` 登录；`env` 禁用 CLI 凭证读取。 |
+| `--auth MODE` | `auto` | 先使用环境变量，再复用目标 GitHub/GitLab 站点的 `gh`/`glab` 登录；`env` 禁用 CLI 读取。Gitee 仅使用环境变量凭证。 |
 | `--no-cache` | 关闭 | 禁用本次运行的持久化磁盘缓存读写和清理。 |
 | `--timeout DURATION` | `5m` | 整个命令的截止时间，例如 `30s` 或 `2m`。 |
 | `--version` | — | 输出版本并返回 `0`；不需要 pattern 或 repository。 |
@@ -394,7 +408,7 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 <a id="exit-codes"></a>
 ## 退出码
 
-下面说明搜索退出码。`refs`、`read` 和 `propose` 成功返回 `0`，失败返回 `2`；提案结果语义见[变更提案文档](docs/agent-changes.md#results-and-recovery)。
+下面说明搜索退出码。`refs`、`read`、`propose` 和 `issue create` 成功返回 `0`，失败返回 `2`；发布及恢复语义见[变更提案文档](docs/agent-changes.md#results-and-recovery)和 [issue 文档](docs/issues.md#output-and-uncertain-responses)。
 
 - `0`：找到至少一行匹配且命令没有失败。结果上限截断和 `complete=false` 的 indexed 结果也可能返回 `0`。
 - `1`：命令完成但没有找到匹配行。对 indexed 来说，这只表示 provider 候选集中没有匹配。
@@ -405,7 +419,7 @@ NDJSON 正常事件顺序为 `meta`、每项一个 `ref` event、`summary`：
 <a id="permissions--credential-best-practices"></a>
 ## Permissions & credential best practices / 权限与凭证最佳实践
 
-`git-rg` 在 `Authorization: Bearer` 请求头中发送凭证。对于只需读取的工作流，请使用能够读取目标仓库及其元数据的最小只读身份。可选的 `propose --enable-write` 要求提供 `GITRG_WRITE_TOKEN`，权限要求与单 token 配置见[写入文档](docs/agent-changes.md#credentials)。
+`git-rg` 在 `Authorization: Bearer` 请求头中发送凭证。对于只需读取的工作流，请使用能够读取目标仓库及其元数据的最小只读身份。`propose --enable-write` 和 `issue create --enable-write` 需要 `GITRG_WRITE_TOKEN`，且凭证须具备对应操作权限；详见[提案凭证](docs/agent-changes.md#credentials)和 [issue 凭证](docs/issues.md#credentials)。
 
 ### 自动复用 CLI 凭证
 
@@ -447,11 +461,13 @@ CLI 未安装时静默匿名访问。未登录、读取失败、超时或输出�
 | 目标 | 环境变量顺序 |
 | --- | --- |
 | 任一 provider，包括自建实例 | 总是先检查 `GITRG_TOKEN`；非空时它优先。 |
-| `github.com` | 在 `GITRG_TOKEN` 之后依次读取 `GITHUB_TOKEN`、`GH_TOKEN`、`GITRG_WRITE_TOKEN`。云端专用变量不会用于自建 GitHub。 |
-| `gitlab.com` | 在 `GITRG_TOKEN` 之后依次读取 `GITLAB_TOKEN`、`GITRG_WRITE_TOKEN`。云端专用变量不会用于自建 GitLab。 |
-| 自建 host | 先读取 `GITRG_TOKEN`，再读取 `GITRG_WRITE_TOKEN`。 |
+| GitHub API host `api.github.com` | 在 `GITRG_TOKEN` 之后依次读取 `GITHUB_TOKEN`、`GH_TOKEN`、`GITRG_WRITE_TOKEN`。自定义 API host 不使用这些云端变量。 |
+| GitLab API host `gitlab.com` | 在 `GITRG_TOKEN` 之后依次读取 `GITLAB_TOKEN`、`GITRG_WRITE_TOKEN`。自定义 API host 不使用该云端变量。 |
+| 其他 API host | 先读取 `GITRG_TOKEN`，再读取 `GITRG_WRITE_TOKEN`。 |
 
-这些变量都未设置时，`auto` 尝试对应 CLI 登录，`env` 则匿名继续。已设置的读取 token 若被 API 拒绝，不会改用 `GITRG_WRITE_TOKEN` 重试。
+Gitee.com 源码构建依次读取 `GITRG_TOKEN` → `GITEE_TOKEN` → `GITRG_WRITE_TOKEN`。只有 Gitee API host 是 `gitee.com` 时才使用 `GITEE_TOKEN`；自定义 host 使用自建实例的顺序。Gitee 不读取 `gh`/`glab` 凭证，没有环境变量 token 时匿名继续。权限见 [Gitee 文档](docs/gitee.md#credentials-and-writes)。
+
+这些变量都未设置时，`auto` 尝试对应 GitHub/GitLab CLI 登录，`env` 则匿名继续。已设置的读取 token 若被 API 拒绝，不会改用 `GITRG_WRITE_TOKEN` 重试。
 
 没有 token CLI 参数。仓库 URL 和 `--api-base` 会拒绝内嵌凭证，所以不要把 token 放进 URL。未设置 token 时公开 endpoint 仍可能可访问；最终由 provider 决定权限。环境变量是普通的进程输入，不要承诺同一用户的其他进程或诊断工具无法观察它。
 
@@ -492,7 +508,7 @@ CLI 未安装时静默匿名访问。未登录、读取失败、超时或输出�
 
 超过本地或 provider 边界会返回明确的 `resource_limit` error。GitHub Git Blob API 路径拒绝大于 100 MiB 的对象；archive 读取使用独立的压缩、解压和本地文件上限。文件会探测 NUL 和非法 UTF-8；二进制/非法 UTF-8 文件会跳过，如果在暂存匹配之后才发现 NUL，则丢弃该文件的全部暂存 event。达到结果上限后停止匹配，不对后缀作文本/二进制检查承诺；archive 条目仍会在资源限制内读到文件末尾，验证 blob 哈希后才输出结果。
 
-读取请求最多尝试 3 次。读取客户端尊重可用的 `Retry-After`/限流 reset 延迟，最多允许 5 次重定向，拒绝 HTTPS 降级；HTTPS 跨 host 重定向时会剥离授权请求头。写入请求只发送一次且不跟随重定向；响应不确定时使用[提案恢复流程](docs/agent-changes.md#results-and-recovery)。`--max-requests` 统计全部远端请求，包括重试和重定向。
+读取请求最多尝试 3 次。读取客户端尊重可用的 `Retry-After`/限流 reset 延迟，最多允许 5 次重定向，拒绝 HTTPS 降级；HTTPS 跨 host 重定向时会剥离授权请求头。写入请求只发送一次且不跟随重定向。提案响应不确定时使用[提案恢复流程](docs/agent-changes.md#results-and-recovery)；issue 创建响应不确定时，须[先检查远端 issue 再重试](docs/issues.md#output-and-uncertain-responses)。`--max-requests` 统计全部远端请求，包括重试和重定向。
 
 六个 Tier 1 二进制覆盖 Linux、macOS、Windows 的 amd64 和 arm64。Release 使用 `CGO_ENABLED=0` 构建；其他平台可以用 Go 1.26 源码构建，但属于 best effort。GitHub.com 和 GitLab.com 是主要 SaaS 目标。GHES 和自建 GitLab 通过对应 REST API best effort 支持，不承诺最低服务端版本；请使用目标实例自己的 provider、API 基址、token 和代表性仓库进行验收。
 

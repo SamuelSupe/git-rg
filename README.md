@@ -8,9 +8,13 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+[Documentation guide](docs/README.md) · [Installation](docs/installation.md) · [Agent changes](docs/agent-changes.md) · [Issue creation](docs/issues.md) · [Support policy](SUPPORT.md)
+
 > Search GitHub and GitLab repositories at an immutable commit—without cloning the target repository.
 
 `git-rg` is a small Go command-line tool for remote code search. It resolves a branch, tag, or commit to a fixed commit SHA, reads only the API content needed for the selected search path, and emits agent-friendly NDJSON by default. It supports public, private, and self-managed GitHub/GitLab instances; it does not create a local checkout or download Git history.
+
+**Gitee development preview (unreleased local changes):** search, refs, full-file reads, proposal previews, batch commits with draft PRs, and issue creation now accept `gitee:OWNER/REPO`. Writes remain off by default. The adapter is not yet published to `main` or included in v0.7.0 installers; see [Gitee usage and API differences](docs/gitee.md).
 
 **New in v0.7.0: create GitHub and GitLab issues with Agent identity.** Preview issue content locally, then explicitly enable creation. See [Issue creation](docs/issues.md) for examples and permissions. The existing read and proposal workflow continues to support a single token: Set only `GITRG_WRITE_TOKEN` to authenticate search, refs, file reads, and previews as well as explicitly enabled publication. An agent supplies a JSON change plan, and `git-rg` validates the original files, previews the diff, and publishes a commit and draft PR/MR on a new branch. See [Agent changes](docs/agent-changes.md) for the input format and recovery contract.
 
@@ -96,6 +100,7 @@ git-rg refs github:OWNER/REPO
 
 - [What's new in v0.7.0](#whats-new-in-v070)
 - [Create an issue](#create-an-issue)
+- [Gitee (development preview)](docs/gitee.md)
 - [Why no clone](#why-no-clone)
 - [Install](#install)
 - [Repository addresses](#repository-addresses)
@@ -116,7 +121,7 @@ git-rg refs github:OWNER/REPO
 - `exact` can still read every matching ordinary text file in the selected commit. “Without cloning” removes the checkout and history transfer; it does not mean that a full search reads no repository content or uses no network.
 - SSH-style clone URLs are accepted for address parsing only. `git-rg` does not use SSH authentication or the Git transport.
 
-The current providers are GitHub and GitLab. There is no offline search mode, local-path search, history search, or generic Git-server protocol. Search and ref queries remain read-only; writes require an explicitly enabled write command. Pre-built binaries are published through GitHub Releases.
+The v0.7.0 release supports GitHub and GitLab; unpublished local development changes also include [Gitee support](docs/gitee.md). There is no offline search mode, local-path search, history search, or generic Git-server protocol. Search and ref queries remain read-only; writes require an explicitly enabled write command. Pre-built binaries are published through GitHub Releases.
 
 ## Install
 
@@ -226,6 +231,8 @@ go build -trimpath -o ./git-rg ./cmd/git-rg
 
 Other `GOOS/GOARCH` combinations may be built with Go 1.26, but are best effort and do not receive a Tier 1 archive or dedicated release smoke guarantee.
 
+An unversioned source build reports `git-rg dev`; `go install` reports the module version. Gitee requires a source tree containing the adapter changes; cloning the published `main` branch does not provide them until those changes are published. See [Gitee availability](docs/gitee.md).
+
 ## Repository addresses
 
 Supported forms are:
@@ -233,11 +240,14 @@ Supported forms are:
 ```text
 github:OWNER/REPO
 gitlab:GROUP/PROJECT
+gitee:OWNER/REPO
 https://HOST/OWNER/REPO.git
 git@HOST:GROUP/PROJECT.git
 ```
 
 Public cloud examples:
+
+The `gitee:` shorthand and Gitee URLs require a build containing the unreleased adapter; see [Gitee examples](docs/gitee.md#commands).
 
 ```sh
 git-rg TODO github:OWNER/REPO
@@ -258,7 +268,9 @@ git-rg --provider gitlab \
   TODO git@gitlab.example.com:GROUP/PROJECT.git
 ```
 
-`--api-base` must be an absolute `http://` or `https://` URL without user information, a query string, or a fragment. Use HTTPS in production. GitHub paths are exactly `OWNER/REPO`; GitLab paths may contain nested groups.
+Private Gitee installations use `--provider gitee` and default to `https://HOST/api/v5`; support depends on the installation exposing the APIs listed in [Gitee usage](docs/gitee.md).
+
+`--api-base` must be an absolute `http://` or `https://` URL without user information, a query string, or a fragment. Use HTTPS in production. GitHub and Gitee paths are exactly `OWNER/REPO`; GitLab paths may contain nested groups.
 
 ## Search modes and completeness
 
@@ -275,6 +287,8 @@ An incomplete or unavailable tree cannot establish a complete exact/auto result.
 When explicit globs narrow the tree, exact/auto uses validated blob cache hits before applying download thresholds. If all selected files are cached, no archive, index, or blob download is needed. For the remaining files, up to eight blobs can be downloaded directly: known sizes must total at most 8 MiB; multiple missing files must have known sizes and cover at most a quarter of the tree. A single missing file with an unknown size is also eligible. The request budget must leave room for retries. These download thresholds do not restrict cache hits. After more than eight cache misses, probing stops and the usual archive/index strategy handles the remaining files. Failed blob prefetches fall back to the archive, without repeating successful files.
 
 `indexed` requires a non-empty literal prefix that Go can extract from the pattern. GitHub and GitLab candidate requests are bounded to at most 10 pages of 100 items and an 8 MiB candidate-path budget; provider coverage can still vary. Do not assume every indexed search is available or complete.
+
+Gitee supports `auto` and `exact`. `auto` continues with the complete tree/archive/blob scan without index acceleration; `indexed` fails with `indexed_search_unsupported` and exit code `2`.
 
 ### Globs and context
 
@@ -306,7 +320,7 @@ git-rg refs --kind branch gitlab:GROUP/PROJECT
 git-rg refs --kind tag gitlab:GROUP/PROJECT
 ```
 
-Flags are `--kind all|branch|tag`, `--format ndjson|text`, `--max-requests NUM`, `--provider github|gitlab`, `--api-base URL`, `--auth auto|env`, and `--timeout DURATION`. A full listing uses pages of up to 100 items. A later-page error returns an error and never labels a partial list complete.
+Flags are `--kind all|branch|tag`, `--format ndjson|text`, `--max-requests NUM`, `--provider github|gitlab|gitee`, `--api-base URL`, `--auth auto|env`, and `--timeout DURATION`. A full listing uses pages of up to 100 items. A later-page error returns an error and never labels a partial list complete.
 
 In NDJSON, the normal event sequence is `meta`, one `ref` event per item, and `summary`:
 
@@ -338,9 +352,9 @@ All flags must appear before `PATTERN REPOSITORY`.
 | `--format FORMAT` | `ndjson` | Select `ndjson` or `text`. |
 | `--max-results NUM` | `200` | Maximum matching lines; `0` means unlimited. |
 | `--max-requests NUM` | `100` | Remote request budget, including retries and redirects; `0` means unlimited. |
-| `--provider NAME` | inferred | `github` or `gitlab`; required for private/self-managed hosts. |
+| `--provider NAME` | inferred | `github`, `gitlab`, or unreleased `gitee`; required for private/self-managed hosts. |
 | `--api-base URL` | inferred | Override the provider API base URL. |
-| `--auth MODE` | `auto` | Use environment credentials, then the target host's `gh`/`glab` login; `env` disables CLI credential lookup. |
+| `--auth MODE` | `auto` | Use environment credentials, then the target GitHub/GitLab host's `gh`/`glab` login; `env` disables CLI lookup. Gitee uses environment credentials only. |
 | `--no-cache` | off | Disable this run's persistent disk-cache reads, writes, and pruning. |
 | `--timeout DURATION` | `5m` | Overall command deadline, such as `30s` or `2m`. |
 | `--version` | — | Print the version and exit `0`; no pattern or repository is required. |
@@ -382,7 +396,7 @@ With `--format text`, match lines are `path:line:column:text`; context lines are
 
 ## Exit codes
 
-The codes below describe search. `refs`, `read`, and `propose` return `0` on success and `2` on failure; publication details are in [Agent changes](docs/agent-changes.md#results-and-recovery).
+The codes below describe search. `refs`, `read`, `propose`, and `issue create` return `0` on success and `2` on failure. Publication and recovery details are in [Agent changes](docs/agent-changes.md#results-and-recovery) and [Issue creation](docs/issues.md#output-and-uncertain-responses).
 
 - `0`: the command found at least one matching line and did not fail. This includes a result-limit truncation and an `indexed` result with `complete=false`.
 - `1`: the command completed without a matching line. For `indexed`, this is only “no match among the provider's candidates.”
@@ -393,7 +407,7 @@ Warnings such as `index_unavailable` do not change the exit code. `SIGINT` and `
 <a id="permissions--credential-best-practices"></a>
 ## Permissions & credential best practices
 
-`git-rg` sends credentials in the `Authorization: Bearer` request header. For workflows that only read, use the narrowest read-only identity that can read the target repository and its metadata. The optional `propose --enable-write` command requires `GITRG_WRITE_TOKEN`; see [write credentials](docs/agent-changes.md#credentials) for permissions and single-token configuration.
+`git-rg` sends credentials in the `Authorization: Bearer` request header. For workflows that only read, use the narrowest read-only identity that can read the target repository and its metadata. `propose --enable-write` and `issue create --enable-write` require `GITRG_WRITE_TOKEN`, with permissions for the requested operation; see [proposal credentials](docs/agent-changes.md#credentials) and [issue credentials](docs/issues.md#credentials).
 
 ### Automatic CLI credentials
 
@@ -435,11 +449,13 @@ Environment lookup runs first in both authentication modes. Since v0.6.0, `GITRG
 | Target | Environment variables, in order |
 | --- | --- |
 | Any provider, including self-managed | `GITRG_TOKEN` is always checked first and wins when non-empty. |
-| `github.com` | After `GITRG_TOKEN`, `GITHUB_TOKEN`, then `GH_TOKEN`, then `GITRG_WRITE_TOKEN`. The cloud-specific variables are not used for self-managed GitHub. |
-| `gitlab.com` | After `GITRG_TOKEN`, `GITLAB_TOKEN`, then `GITRG_WRITE_TOKEN`. The cloud-specific variable is not used for self-managed GitLab. |
-| Self-managed host | `GITRG_TOKEN`, then `GITRG_WRITE_TOKEN`. |
+| GitHub API host `api.github.com` | After `GITRG_TOKEN`, `GITHUB_TOKEN`, then `GH_TOKEN`, then `GITRG_WRITE_TOKEN`. Custom API hosts do not use these cloud variables. |
+| GitLab API host `gitlab.com` | After `GITRG_TOKEN`, `GITLAB_TOKEN`, then `GITRG_WRITE_TOKEN`. Custom API hosts do not use this cloud variable. |
+| Other API hosts | `GITRG_TOKEN`, then `GITRG_WRITE_TOKEN`. |
 
-If none is set, `auto` tries the matching CLI login; `env` continues anonymously. A read token that is present but rejected by the API does not trigger a retry with `GITRG_WRITE_TOKEN`.
+Gitee.com source builds check `GITRG_TOKEN` → `GITEE_TOKEN` → `GITRG_WRITE_TOKEN`. `GITEE_TOKEN` is only used when the Gitee API host is `gitee.com`; custom hosts use the self-managed order. Gitee never reads `gh`/`glab` credentials and continues anonymously without an environment token. See [Gitee permissions](docs/gitee.md#credentials-and-writes).
+
+If none is set, `auto` tries the matching GitHub/GitLab CLI login; `env` continues anonymously. A read token that is present but rejected by the API does not trigger a retry with `GITRG_WRITE_TOKEN`.
 
 There is no token CLI flag. Repository URLs and `--api-base` reject embedded credentials, so never put a token in a URL. An unset token may still work for public endpoints; access is decided by the provider. Environment variables are ordinary process inputs—do not promise that a same-user process or diagnostic tool cannot observe them.
 
@@ -478,7 +494,7 @@ The limits below are deliberate bounds, not capacity promises:
 
 Exceeding a local or provider bound returns an explicit `resource_limit` error. GitHub's Git Blob API path rejects objects larger than 100 MiB; archive reads have their own compressed, expanded, and local-file limits. Files are probed for NUL bytes and invalid UTF-8; binary/invalid-UTF-8 files are skipped, and a NUL discovered after provisional matches discards that file's staged events. A result limit stops matching before the remaining suffix, so no text/binary inspection claim is made for that suffix. Archive entries are still read to their end, within resource limits, to verify the blob hash before results are emitted.
 
-Read requests get at most three attempts. The read client respects usable `Retry-After`/rate-limit reset delays, allows at most five redirects, refuses HTTPS downgrade, and strips authorization headers when following an HTTPS cross-host redirect. Write requests are sent once and never follow redirects; use the [proposal recovery flow](docs/agent-changes.md#results-and-recovery) after an uncertain response. `--max-requests` counts all remote requests, including retries and redirects.
+Read requests get at most three attempts. The read client respects usable `Retry-After`/rate-limit reset delays, allows at most five redirects, refuses HTTPS downgrade, and strips authorization headers when following an HTTPS cross-host redirect. Write requests are sent once and never follow redirects. Uncertain proposals use the [proposal recovery flow](docs/agent-changes.md#results-and-recovery); uncertain issue creation requires [checking remote issues before retrying](docs/issues.md#output-and-uncertain-responses). `--max-requests` counts all remote requests, including retries and redirects.
 
 The six Tier 1 binaries are Linux, macOS, and Windows on amd64 and arm64. Release builds use `CGO_ENABLED=0`; other platforms can be built from source with Go 1.26 on a best-effort basis. GitHub.com and GitLab.com are the primary SaaS targets. GHES and self-managed GitLab are supported on a best-effort basis through their REST APIs, without a promised minimum server version; validate the target instance with its own provider, API base, token, and representative repositories.
 

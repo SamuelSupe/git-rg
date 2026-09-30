@@ -2,7 +2,9 @@
 
 Read, preview, and publication are available since **v0.5.0**. **v0.6.0** adds single-token authentication for reading and publishing. The current release is **v0.7.0**, which also adds [issue creation](issues.md) with the same Agent identity parameters. See the [installation guide](installation.md) and [v0.7.0 release notes](releases/v0.7.0.md).
 
-An external agent supplies the edited text. `git-rg` reads immutable files, validates a JSON plan, previews a diff, and publishes a single commit on a new branch followed by a draft GitHub PR or GitLab MR. It uses the provider API without cloning a target repository, executing its code, or invoking Git. Writes are **off by default**.
+Unpublished local development changes also support [Gitee](gitee.md), including batch commits, draft PRs, and Agent identity. It requires a build containing the adapter changes, which are not yet in a release or the published `main` branch.
+
+An external agent supplies the edited text. `git-rg` reads immutable files, validates a JSON plan, previews a diff, and publishes a single commit on a new branch followed by a draft GitHub/Gitee PR or GitLab MR. It uses the provider API without cloning a target repository, executing its code, or invoking Git. Writes are **off by default**.
 
 ## Read and prepare
 
@@ -12,6 +14,8 @@ git-rg read --ref main gitlab:GROUP/PROJECT path/to/file.go
 ```
 
 The `file` NDJSON event contains `repository`, `commit`, `path`, `blob`, `mode`, and the full UTF-8 `content`, including its original line endings. A successful read verifies the downloaded bytes against the blob SHA. Use the returned `commit` to pin subsequent reads with `--ref`, so all edits use one snapshot. Files are read through the API; these commands do not use the search cache.
+
+`read` accepts `--ref`, `--provider`, `--api-base`, `--auth auto|env`, `--timeout` (default 5 minutes), and `--max-requests` (default 100; 0 is unlimited). Put flags before `REPOSITORY PATH`. It returns ordinary UTF-8 text up to 1 MiB and rejects binary content, LFS pointers, symlinks, and submodules. `read` and `propose` output NDJSON only; search flags such as `--format`, `--glob`, and `--no-cache` do not apply.
 
 Create `changes.json`. Replace the two SHA placeholders below with the full lowercase values returned by `read`; `content` is the entire modified file, not a patch or a search result fragment:
 
@@ -51,14 +55,14 @@ An empty `content` string creates or writes an empty file; omitting it is an err
 ## Preview and publish
 
 ```sh
-# GET requests only. No write identity is used or needed.
+# GET requests only; a write-capable token does not enable writes.
 git-rg propose --dry-run --changes changes.json github:OWNER/REPO
 
 # Requires GITRG_WRITE_TOKEN supplied by your secret manager or environment.
 git-rg propose --enable-write --changes changes.json github:OWNER/REPO
 ```
 
-Replace the repository with `gitlab:GROUP/PROJECT` for GitLab. Put all flags before positional arguments. `--changes -` reads the plan from stdin. Both commands also accept `--provider`, `--api-base`, `--auth auto|env`, `--timeout` (default 5 minutes), and `--max-requests` (default 100, including retries; 0 is unlimited). Private hosts use the same repository and API-base conventions as search. Output is NDJSON only.
+Replace the repository with `gitlab:GROUP/PROJECT` for GitLab, or `gitee:OWNER/REPO` with a build containing the unreleased Gitee adapter. Put all flags before positional arguments. `--changes -` reads the plan from stdin. Both commands also accept `--provider`, `--api-base`, `--auth auto|env`, `--timeout` (default 5 minutes), and `--max-requests` (default 100, including retries; 0 is unlimited). Private hosts use the same repository and API-base conventions as search. Output is NDJSON only.
 
 The timeout includes reading the plan. A pipe that remains open after sending JSON still times out with a `cancelled` error; the command does not wait indefinitely for EOF.
 
@@ -94,7 +98,9 @@ This attribution does not change the authenticated platform author or Git commit
 
 ## Credentials
 
-`propose --enable-write` requires `GITRG_WRITE_TOKEN`. It does not fall back to `GITRG_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`, or a `gh`/`glab` login. This token authenticates both validation reads and publication writes in that invocation. Merely setting it does not enable writing.
+Gitee source builds prefer `GITRG_TOKEN`, then public-cloud `GITEE_TOKEN`, then `GITRG_WRITE_TOKEN` for reads, and never reuse `gh`/`glab` logins. See [Gitee credentials](gitee.md#credentials-and-writes).
+
+`propose --enable-write` requires `GITRG_WRITE_TOKEN`. It does not fall back to `GITRG_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`, `GITEE_TOKEN`, or a `gh`/`glab` login. This token authenticates both validation reads and publication writes in that invocation. Merely setting it does not enable writing.
 
 Since v0.6.0, search, `refs`, `read`, and `propose --dry-run` also use `GITRG_WRITE_TOKEN` when no applicable read environment token is set. This works with both `--auth auto` and `--auth env`, including self-managed hosts. `GITRG_TOKEN` and applicable cloud read tokens retain priority; the write token is checked before automatic `gh`/`glab` login. API authentication failures do not switch credentials. To retain a separate read identity when upgrading from v0.5.0, set `GITRG_TOKEN` explicitly.
 
@@ -111,6 +117,8 @@ The first two commands make only read requests, even with a write-capable token.
 - **GitHub:** a repository-scoped fine-grained token or GitHub App identity with Contents write and Pull requests write permissions. Repository rules can impose additional requirements, such as signed commits or restrictions on workflow-file changes. See [Git trees](https://docs.github.com/en/rest/git/trees#create-a-tree) and [PR creation](https://docs.github.com/en/rest/pulls/pulls#create-a-pull-request).
 - **GitLab:** an identity allowed to create source branches and merge requests, with API access (typically the `api` scope for a PAT or project access token). `write_repository` alone is not REST API write permission. Instance policies and branch protections still apply. See [token scopes](https://docs.gitlab.com/security/tokens/access_token_scopes/), [commits](https://docs.gitlab.com/api/commits/#create-a-commit), and [merge requests](https://docs.gitlab.com/api/merge_requests/#create-a-merge-request).
 
+- **Gitee (unreleased):** a token with repository access and `projects`/`pull_requests` scopes. Writes still use `GITRG_WRITE_TOKEN`; see [Gitee credentials](gitee.md#credentials-and-writes).
+
 Use a repository-specific identity and keep the token out of plan files, command-line arguments, and source control. The token is sent in the Authorization header. Plan files, previews, and outputs contain source code and should receive the same access controls as the repository.
 
 ## Results and recovery
@@ -122,9 +130,9 @@ The `proposal.result` object contains `branch`, `base_commit`, any known `commit
 - New publication requires the target branch to still point at `base_commit`. Otherwise it returns `base_changed`; read the new snapshot and regenerate the plan.
 - An original file SHA mismatch returns `blob_conflict` before writes. An unrelated existing source branch or unexpected published tree returns `branch_conflict` and is never overwritten.
 - The commit includes a `Git-Rg-Change` fingerprint of the plan and repository. Repeating the same plan verifies this marker, its single parent, and every tree entry before reusing that commit. This also checks unchanged files, symlinks, submodules, and executable modes.
-- Before sending a GitLab commit, `git-rg` orders deletions before other actions, so replacing a directory with a file deletes its children first. This execution order does not change the canonical plan or recovery fingerprint.
+- Before sending a GitLab or Gitee batch commit, `git-rg` orders deletions before other actions, so replacing a directory with a file deletes its children first. This execution order does not change the canonical plan or recovery fingerprint.
 - Failed or uncertain POST requests are not automatically retried, and write redirects are refused. A timeout may occur after the server accepted a commit, branch, or PR. Rerun the **same plan against the same repository/API base**: it inspects remote state and resumes without another commit or duplicate PR. A recovered commit can still be used if the target has since advanced; its original base SHA remains unchanged.
 - Existing PRs/MRs are returned with their actual state, including closed or merged. They are not reopened or converted back to drafts. If a previous PR exists but its source branch was deleted, use a new branch name.
 - On failure, inspect `result.complete: false`, any returned commit/URL, and the subsequent error. Remote objects are not rolled back or deleted. A GitHub commit may exist without a branch if ref creation failed; such an unreferenced object is harmless and a retry can create another object before publishing the branch.
 
-This first version supports same-repository new branches and regular UTF-8 text files: at most 100 changed files, 1 MiB per file, 4 MiB each for total original and replacement contents, and 8 MiB for the JSON plan. It preserves executable modes when updating existing files. Editing binary files, Git LFS pointers, symlinks, submodules, fork PRs, existing branch updates, automatic merging, and running build/test commands are outside this command's scope. GitLab can apply repository LFS rules to newly created files; any resulting tree mismatch is reported before a MR is created. Verify builds and tests in CI or an agent-managed execution environment.
+The command supports same-repository new branches and regular UTF-8 text files: at most 100 changed files, 1 MiB per file, 4 MiB each for total original and replacement contents, and 8 MiB for the JSON plan. It preserves executable modes when updating existing files. Editing binary files, Git LFS pointers, symlinks, submodules, fork PRs, existing branch updates, automatic merging, and running build/test commands are outside this command's scope. GitLab can apply repository LFS rules to newly created files; any resulting tree mismatch is reported before a MR is created. Verify builds and tests in CI or an agent-managed execution environment.

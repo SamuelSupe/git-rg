@@ -23,7 +23,9 @@
 - GitHub.com 和 GitLab.com 是每次发布的主要 SaaS 验证目标。公开仓库和带有合适权限的私有仓库都在支持范围内，但请求仍受平台 API 配额、仓库权限、对象大小和服务可用性约束。
 - GitHub Enterprise Server（GHES）和自建 GitLab 通过对应 REST API 提供 best effort 支持。v0.7.0 不承诺具体 GHES/GitLab Server 最低版本；部署方必须用目标实例的 --provider、--api-base、token 和代表性仓库做验收。
 - 搜索支持单仓库、单个 branch/tag/commit ref；不支持跨组织/跨 group 搜索、Git 历史搜索或通用 Git 服务器协议。`read` 可读取固定 commit 的完整文本；`propose` 可按 JSON 计划在同仓库新分支提交文本变更并创建草稿 PR/MR。
-- 搜索、refs、read 和 propose --dry-run 默认使用 --auth auto：优先读取 GITRG_TOKEN、公共 GitHub 的 GITHUB_TOKEN/GH_TOKEN 或公共 GitLab 的 GITLAB_TOKEN，随后检查 GITRG_WRITE_TOKEN。此回退从 v0.6.0 开始生效，同时适用于 --auth env 和自建实例。没有环境变量凭证时，auto 尝试目标站点当前的 gh/glab 登录。自动复用要求 HTTPS 和匹配的 API origin；自建实例也遵守此边界。--auth env 可关闭 CLI 凭证读取，跨 origin API 使用显式环境变量凭证。token 不作为 CLI 参数，不写入日志或缓存；git-rg 不增加凭证存储。glab 的隐藏 credential helper、凭证库和 OAuth 刷新必须受所用版本支持；不兼容时提示 warning 并匿名继续。
+- 搜索、refs、read 和 propose --dry-run 默认使用 --auth auto：优先读取 GITRG_TOKEN、公共 GitHub 的 GITHUB_TOKEN/GH_TOKEN 或公共 GitLab 的 GITLAB_TOKEN，随后检查 GITRG_WRITE_TOKEN。此回退从 v0.6.0 开始生效，同时适用于 --auth env 和自建实例。没有环境变量凭证时，auto 尝试目标 GitHub/GitLab 站点当前的 gh/glab 登录；Gitee 不使用 CLI 凭证。自动复用要求 HTTPS 和匹配的 API origin；自建实例也遵守此边界。--auth env 可关闭 CLI 凭证读取，跨 origin API 使用显式环境变量凭证。token 不作为 CLI 参数，不写入日志或缓存；git-rg 不增加凭证存储。glab 的隐藏 credential helper、凭证库和 OAuth 刷新必须受所用版本支持；不兼容时提示 warning 并匿名继续。
+
+本地开发改动已新增 [Gitee Open API v5 支持](docs/gitee.md)，尚未发布到 Release 或远端 `main`，需要包含适配器改动的源码构建：包括 `auto`/`exact` 搜索、refs、read、提案预览、批量提交及草稿 PR、issue 和 Agent 身份。Gitee 不提供公开代码索引 API，`indexed` 返回 `indexed_search_unsupported`。创建 issue 使用字符串 `result.identifier`，不会改变 GitHub/GitLab 数字 `result.number` 的类型。Gitee.com 读取支持 `GITEE_TOKEN`，并继续支持只配置 `GITRG_WRITE_TOKEN`；写入默认关闭，自建实例按其 API 能力验收。
 
 ## 搜索结果完整性
 
@@ -37,7 +39,7 @@ auto 使用与 exact 相同的完整 tree 和内容核验流程，优先复用�
 
 v0.7.0 新增 `issue create`：支持标题、Markdown 正文及 Agent 身份，创建时要求 `--enable-write` 和具备 issue 权限的 `GITRG_WRITE_TOKEN`。其 `--dry-run` 仅本地校验和预览，不认证、不请求远端。创建请求不自动重试或去重；响应不确定时返回 `issue_creation_uncertain`，重试前应检查远端。完整契约见[issue 文档](docs/issues.md)。
 
-`propose` 写入默认关闭，每次都需要 `--enable-write` 和 `GITRG_WRITE_TOKEN`。`--dry-run` 只读取远端数据，复用写入 token 也不会开启写入。此版本支持普通 UTF-8 文本，不支持修改已有分支、fork PR、二进制文件、LFS 指针、symlink、submodule、自动合并或执行仓库代码。输入限制、Agent 身份参数和失败恢复见[变更提案文档](docs/agent-changes.md)。
+`propose` 写入默认关闭，每次都需要 `--enable-write` 和 `GITRG_WRITE_TOKEN`。`--dry-run` 只读取远端数据，复用写入 token 也不会开启写入。该命令支持普通 UTF-8 文本，不支持修改已有分支、fork PR、二进制文件、LFS 指针、symlink、submodule、自动合并或执行仓库代码。输入限制、Agent 身份参数和失败恢复见[变更提案文档](docs/agent-changes.md)。
 
 `proposal.result.complete=true` 表示已核验的 commit 位于源分支且对应 PR/MR 存在，不表示编译、测试或 CI 已通过。远端写入没有自动重试；响应不确定时重跑相同计划与身份，由命令检查远端状态并恢复。
 

@@ -6,6 +6,8 @@
 
 v0.7.0 新增 `issue create`，创建同样要求 `--enable-write` 和具备 issue 权限的 `GITRG_WRITE_TOKEN`；其 `--dry-run` 仅在本地预览。安装后运行 `git-rg issue create --help` 查看示例，完整契约见[issue 创建说明](issues.md)。
 
+本地开发改动中的 [Gitee 支持](gitee.md) 尚未发布，需要从包含这些改动的源码构建；v0.7.0 安装器、包管理器和 `go install ...@v0.7.0` 不包含 Gitee。改动发布前，clone 远端 `main` 或使用 `@latest` 也不会获得本地尚未发布的功能。
+
 ## 选择安装方式
 
 | 场景 | 推荐方式 | 备注 |
@@ -151,6 +153,16 @@ cd git-rg
 go build -trimpath -o ./git-rg ./cmd/git-rg
 ./git-rg --version
 ~~~
+
+从包含尚未发布改动的现有源码目录构建：
+
+~~~sh
+cd /path/to/git-rg
+go build -trimpath -o ./git-rg ./cmd/git-rg
+./git-rg --help
+~~~
+
+未通过构建参数注入版本的本地二进制显示 `git-rg dev`；`go install` 安装的二进制显示模块版本。判断 Gitee 是否可用，应核对源码及 `--help` 中的 provider 列表，不能仅凭 `dev` 判断。
 
 上面的 git clone 只适用于获取 git-rg 自身源码；运行 git-rg 搜索其他目标仓库时，不会 clone、checkout 或下载目标仓库 Git 历史。若不希望获取源码，优先使用 Release、脚本或包管理器。
 

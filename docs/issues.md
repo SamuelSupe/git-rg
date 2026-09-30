@@ -2,7 +2,9 @@
 
 Available since **v0.7.0**. See the [installation guide](installation.md) and [release notes](releases/v0.7.0.md). Run `git-rg issue --help` or `git-rg issue create --help` for flags and examples.
 
-`git-rg issue create` creates one issue through the GitHub or GitLab API. It does not clone the repository or resolve a commit, so an empty repository can accept issues if the platform permits them. Remote writes are **off by default**.
+Unpublished local development changes also support [Gitee](gitee.md). It requires a build containing the adapter changes, which are not yet in a release or the published `main` branch.
+
+`git-rg issue create` creates one issue through the GitHub, GitLab, or Gitee API. It does not clone the repository or resolve a commit, so an empty repository can accept issues if the platform permits them. Remote writes are **off by default**.
 
 ## Preview and create
 
@@ -33,14 +35,15 @@ git-rg issue create --enable-write --title "Investigate regression" --body-file 
   --agent-name "Review Agent" --agent-model "model-name" --agent-run-id "run-123" github:OWNER/REPO
 ```
 
-This first version creates ordinary issues with a title and body. It does not manage labels, assignees, milestones, comments, edits, or closing issues. Creation is not idempotent: repeating a successful invocation creates another issue. `--agent-run-id` is attribution, not a deduplication key.
+The command creates ordinary issues with a title and body. It does not manage labels, assignees, milestones, comments, edits, or closing issues. Creation is not idempotent: repeating a successful invocation creates another issue. `--agent-run-id` is attribution, not a deduplication key.
 
 ## Credentials
 
 Creation requires `GITRG_WRITE_TOKEN`; read tokens and `gh`/`glab` logins are never substituted for it. The token needs permission for the requested issue operation, independently of code or PR/MR permissions:
 
 - GitHub fine-grained tokens need **Issues: write** for the target repository. Code and pull-request write permissions alone are insufficient. See [Create an issue](https://docs.github.com/en/rest/issues/issues#create-an-issue).
-- GitLab tokens need API access and a user/bot role allowed to create an issue in the project. Issues must be enabled. See [Create an issue](https://docs.gitlab.com/api/issues/#create-an-issue) and [token scopes](https://docs.gitlab.com/security/tokens/#scopes).
+- GitLab tokens need API access and a user/bot role allowed to create an issue in the project. Issues must be enabled. See [Create an issue](https://docs.gitlab.com/api/issues/#create-an-issue) and [token scopes](https://docs.gitlab.com/security/tokens/access_token_scopes/).
+- Gitee tokens need the `issues` scope and permission to create repository issues. Supply the token as `GITRG_WRITE_TOKEN`; `GITEE_TOKEN` alone does not enable creation. See [Gitee Open API](https://gitee.com/api/v5/swagger).
 
 The body and Agent metadata are submitted as issue content, so review the preview before publishing them.
 
@@ -55,5 +58,7 @@ Dry-run returns one `preview` event containing `repository`, `title`, the final 
 ```
 
 `number` is the repository-local GitHub number or GitLab IID. GitLab's `opened` state is normalized to `open`. `complete: true` requires a valid issue number, web URL, and state from the API response; preview never reports creation as complete.
+
+Gitee source builds return the alphanumeric issue number in `result.identifier` (for example `"IABC42"`) and omit `number`. GitHub/GitLab numeric `number` values remain unchanged. A Gitee result must include a valid identifier, web URL, and state to report completion.
 
 API rejections such as missing permission, disabled issues, validation failures, or rate limiting return `issue_create_failed`. Lost connections, request timeouts, server errors, blocked redirects, malformed responses, or incomplete success results can leave creation uncertain and return `issue_creation_uncertain`. These requests are not replayed. Check the repository's issue list before retrying, since an issue may already exist. If stdout fails after confirmed creation, the stderr diagnostic includes the created URL.
