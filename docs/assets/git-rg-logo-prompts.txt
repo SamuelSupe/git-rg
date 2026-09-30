@@ -1,0 +1,8 @@
+Tool: built-in ImageGen
+Asset: git-rg-logo.png
+
+Initial generation
+Use case: logo-brand. Create one original minimalist logo mark for git-rg, a developer CLI for searching remote Git repositories at a fixed commit. A compact geometric search-lens silhouette subtly integrates a two-node Git branch; make the combination feel like a single elegant custom glyph. Bold clean strokes, balanced negative space, restrained blue ink matching #24678B, flat vector-like finish, crisp edges, recognizable at 32 px. Center a single mark on a square transparent canvas, with modest even padding. No text, no wordmark, no surrounding badge, no gradients, no shadows, no texture, no 3D, no mockup. Avoid Git's orange diamond and all existing provider logos. The image itself is the final production logo, not a presentation sheet.
+
+Refinement
+Refine this git-rg logo into a clean production icon. Preserve the exact magnifying-glass silhouette, two connected Git nodes, proportions, and overall composition. Change only the surface finish: use perfectly uniform solid blue #24678B for every filled area, fully opaque interiors and clean antialiased edges. Remove all mottling, grain, gradients, faint stray pixels, and shading. Keep the genuine transparent background, including the lens interior and node holes. No text or additional elements. This should look like a precise flat geometric logo and remain legible at 32 px.

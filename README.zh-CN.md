@@ -1,4 +1,8 @@
-# git-rg
+<p align="center">
+  <img src="docs/assets/git-rg-logo.png" width="144" height="144" alt="git-rg 标志">
+</p>
+
+<h1 align="center">git-rg</h1>
 
 [![CI](https://github.com/SamuelSupe/git-rg/actions/workflows/ci.yml/badge.svg)](https://github.com/SamuelSupe/git-rg/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/SamuelSupe/git-rg)](https://github.com/SamuelSupe/git-rg/releases/latest)
