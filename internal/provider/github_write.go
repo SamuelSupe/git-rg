@@ -28,7 +28,7 @@ func (g *gitHub) BranchHead(ctx context.Context, snapshot Snapshot, branch strin
 	return response.Object.SHA, err
 }
 
-func (g *gitHub) CreateChange(ctx context.Context, snapshot Snapshot, branch, message string, changes []FileChange) (string, error) {
+func (g *gitHub) CreateChange(ctx context.Context, snapshot Snapshot, branch, baseBranch, message string, changes []FileChange) (string, error) {
 	base := githubRepositoryEndpoint(snapshot.Repository)
 	tree := make([]map[string]any, 0, len(changes))
 	for _, change := range changes {

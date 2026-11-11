@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -62,7 +63,7 @@ func TestProposeRejectsInvalidPublicationBeforeRemoteRequests(t *testing.T) {
 }
 
 func TestRunProposalWorkflow(t *testing.T) {
-	for _, platform := range []string{"github", "gitlab"} {
+	for _, platform := range []string{"github", "gitlab", "gitee"} {
 		for _, scenario := range []string{"success", "write_token_only", "commit_reply_lost", "pr_failed", "pr_reply_lost", "base_moved", "branch_conflict", "unexpected_symlink", "blob_conflict", "create_over_symlink", "directory_collision", "directory_to_file", "agent_plan", "agent_flags"} {
 			t.Run(platform+"/"+scenario, func(t *testing.T) {
 				t.Setenv("GITRG_TOKEN", "read-token")
@@ -72,7 +73,7 @@ func TestRunProposalWorkflow(t *testing.T) {
 					"shortcut": {"keep.txt", "120000"}, "module": {"submodule", "160000"},
 				}}
 				if scenario == "write_token_only" {
-					for _, name := range []string{"GITRG_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN"} {
+					for _, name := range []string{"GITRG_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "GITEE_TOKEN"} {
 						t.Setenv(name, "")
 					}
 					api.auth = "write-token"
@@ -326,7 +327,7 @@ func (a *proposalAPI) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case path == "/repos/o/r" || path == "/projects/o/r":
 			encode(map[string]any{"id": 7, "default_branch": "main"})
-		case strings.Contains(path, "/git/ref/heads/") || strings.Contains(path, "/repository/branches/"):
+		case strings.Contains(path, "/git/ref/heads/") || strings.Contains(path, "/repository/branches/") || strings.Contains(path, "/branches/"):
 			sha := a.head
 			if strings.HasSuffix(path, "/main") {
 				sha = baseSHA
@@ -338,7 +339,7 @@ func (a *proposalAPI) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				http.NotFound(w, r)
 				return
 			}
-			encode(map[string]any{"object": map[string]string{"sha": sha}, "commit": map[string]string{"id": sha}})
+			encode(map[string]any{"object": map[string]string{"sha": sha}, "commit": map[string]string{"id": sha, "sha": sha}})
 		case strings.Contains(path, "/commits/"):
 			sha, tree, message := baseSHA, baseTreeSHA, "original"
 			parents := []string{strings.Repeat("0", 40)}
@@ -360,15 +361,27 @@ func (a *proposalAPI) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				oid := cliGitBlobOID([]byte(file.content))
 				entries = append(entries, map[string]any{"path": name, "sha": oid, "id": oid, "mode": file.mode, "type": kind, "size": len(file.content)})
 			}
-			if a.platform == "github" {
+			if a.platform != "gitlab" {
 				encode(map[string]any{"tree": entries, "truncated": false})
 			} else {
 				encode(entries)
 			}
+		case strings.Contains(path, "/raw/"):
+			name := strings.TrimPrefix(path, base+"/raw/")
+			file, ok := a.files[name]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			io.WriteString(w, file.content)
 		case strings.Contains(path, "/blobs/"):
 			for _, file := range a.files {
 				if strings.Contains(path, cliGitBlobOID([]byte(file.content))) {
-					io.WriteString(w, file.content)
+					if a.platform == "gitee" {
+						encode(map[string]string{"sha": cliGitBlobOID([]byte(file.content)), "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(file.content))})
+					} else {
+						io.WriteString(w, file.content)
+					}
 					return
 				}
 			}
@@ -391,7 +404,7 @@ func (a *proposalAPI) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		if body["base_tree"] != baseTreeSHA {
 			a.t.Error("tree did not preserve base tree")
 		}
-		if err := a.apply(body["tree"].([]any), false); err != nil {
+		if err := a.apply(body["tree"].([]any), false, false); err != nil {
 			w.WriteHeader(400)
 			encode(map[string]string{"message": err.Error()})
 			return
@@ -419,7 +432,7 @@ func (a *proposalAPI) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		if body["branch"] != "agent/fix" || body["start_sha"] != baseSHA || body["force"] != false || a.head != "" {
 			a.t.Error("commit did not create a new branch from pinned SHA")
 		}
-		if err := a.apply(body["actions"].([]any), true); err != nil {
+		if err := a.apply(body["actions"].([]any), true, false); err != nil {
 			w.WriteHeader(400)
 			encode(map[string]string{"message": err.Error()})
 			return
@@ -430,6 +443,22 @@ func (a *proposalAPI) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		encode(map[string]string{"id": newSHA})
+	case base + "/commits":
+		a.commitPosts++
+		if body["branch"] != "agent/fix" || body["start_branch"] != "main" || a.head != "" {
+			a.t.Error("commit did not create a new Gitee branch from the base branch")
+		}
+		if err := a.apply(body["actions"].([]any), false, true); err != nil {
+			w.WriteHeader(400)
+			encode(map[string]string{"message": err.Error()})
+			return
+		}
+		a.message = body["message"].(string)
+		a.head = newSHA
+		if a.loseCommit(w) {
+			return
+		}
+		encode(map[string]string{"sha": newSHA})
 	case base + "/pulls", base + "/merge_requests":
 		a.prPosts++
 		if a.scenario == "pr_failed" && a.prPosts == 1 {
@@ -437,12 +466,16 @@ func (a *proposalAPI) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			encode(map[string]string{"message": "try later"})
 			return
 		}
-		if a.platform == "github" {
+		if a.platform != "gitlab" {
 			a.prBody = body["body"].(string)
 			if body["draft"] != true || body["head"] != "agent/fix" || body["base"] != "main" {
 				a.t.Error("incorrect draft PR request")
 			}
-			a.pr = map[string]any{"number": 9, "html_url": "https://github.com/o/r/pull/9", "state": "open", "draft": true, "head": map[string]any{"sha": a.head, "ref": "agent/fix", "repo": map[string]string{"full_name": "o/r"}}, "base": map[string]string{"ref": "main"}}
+			webURL := "https://github.com/o/r/pull/9"
+			if a.platform == "gitee" {
+				webURL = "https://gitee.com/o/r/pulls/9"
+			}
+			a.pr = map[string]any{"number": 9, "html_url": webURL, "state": "open", "draft": true, "head": map[string]any{"sha": a.head, "ref": "agent/fix", "repo": map[string]string{"full_name": "o/r"}}, "base": map[string]string{"ref": "main"}}
 		} else {
 			a.prBody = body["description"].(string)
 			if !strings.HasPrefix(body["title"].(string), "Draft: ") || body["source_branch"] != "agent/fix" || body["target_branch"] != "main" {
@@ -473,7 +506,7 @@ func (a *proposalAPI) loseCommit(w http.ResponseWriter) bool {
 	return true
 }
 
-func (a *proposalAPI) apply(items []any, gitlab bool) error {
+func (a *proposalAPI) apply(items []any, gitlab, gitee bool) error {
 	a.next = make(map[string]proposalFile, len(a.files))
 	for name, file := range a.files {
 		a.next[name] = file
@@ -485,17 +518,17 @@ func (a *proposalAPI) apply(items []any, gitlab bool) error {
 			key = "file_path"
 		}
 		name := item[key].(string)
-		if gitlab && item["action"] != "create" && item["last_commit_id"] != baseSHA {
+		if (gitlab || gitee) && item["action"] != "create" && item["last_commit_id"] != baseSHA {
 			a.t.Error("missing file concurrency check")
 		}
 		if item["action"] == "delete" || !gitlab && item["content"] == nil {
-			if _, present := a.next[name]; gitlab && !present {
+			if _, present := a.next[name]; (gitlab || gitee) && !present {
 				return fmt.Errorf("file %q does not exist", name)
 			}
 			delete(a.next, name)
 			continue
 		}
-		if gitlab && item["action"] == "create" {
+		if (gitlab || gitee) && item["action"] == "create" {
 			// Gitaly replaces a same-named directory before applying the next action.
 			for existing := range a.next {
 				if strings.HasPrefix(existing, name+"/") {
@@ -508,7 +541,15 @@ func (a *proposalAPI) apply(items []any, gitlab bool) error {
 			mode = file.mode
 		}
 		if !gitlab {
-			mode = item["mode"].(string)
+			if gitee {
+				if executable, _ := item["execute_filemode"].(bool); executable {
+					mode = "100755"
+				} else {
+					mode = "100644"
+				}
+			} else {
+				mode = item["mode"].(string)
+			}
 		}
 		a.next[name] = proposalFile{item["content"].(string), mode}
 	}

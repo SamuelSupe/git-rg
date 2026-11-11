@@ -25,7 +25,7 @@ func (g *gitLab) BranchHead(ctx context.Context, snapshot Snapshot, branch strin
 	return response.Commit.ID, err
 }
 
-func (g *gitLab) CreateChange(ctx context.Context, snapshot Snapshot, branch, message string, changes []FileChange) (string, error) {
+func (g *gitLab) CreateChange(ctx context.Context, snapshot Snapshot, branch, baseBranch, message string, changes []FileChange) (string, error) {
 	// GitLab applies actions in order; delete children before replacing a directory
 	// with a file. Keep the plan's canonical order unchanged for recovery fingerprints.
 	changes = append([]FileChange(nil), changes...)

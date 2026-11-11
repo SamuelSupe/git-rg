@@ -2,7 +2,7 @@
 
 Read, preview, and publication are available since **v0.5.0**. **v0.6.0** adds single-token authentication for reading and publishing. The current release is **v0.7.0**, which also adds [issue creation](issues.md) with the same Agent identity parameters. See the [installation guide](installation.md) and [v0.7.0 release notes](releases/v0.7.0.md).
 
-Unpublished local development changes also support [Gitee](gitee.md), including batch commits, draft PRs, and Agent identity. It requires a build containing the adapter changes, which are not yet in a release or the published `main` branch.
+Current source builds also support [Gitee](gitee.md), including batch commits, draft PRs, and Agent identity. The v0.7.0 release does not include the adapter.
 
 An external agent supplies the edited text. `git-rg` reads immutable files, validates a JSON plan, previews a diff, and publishes a single commit on a new branch followed by a draft GitHub/Gitee PR or GitLab MR. It uses the provider API without cloning a target repository, executing its code, or invoking Git. Writes are **off by default**.
 
@@ -62,7 +62,7 @@ git-rg propose --dry-run --changes changes.json github:OWNER/REPO
 git-rg propose --enable-write --changes changes.json github:OWNER/REPO
 ```
 
-Replace the repository with `gitlab:GROUP/PROJECT` for GitLab, or `gitee:OWNER/REPO` with a build containing the unreleased Gitee adapter. Put all flags before positional arguments. `--changes -` reads the plan from stdin. Both commands also accept `--provider`, `--api-base`, `--auth auto|env`, `--timeout` (default 5 minutes), and `--max-requests` (default 100, including retries; 0 is unlimited). Private hosts use the same repository and API-base conventions as search. Output is NDJSON only.
+Replace the repository with `gitlab:GROUP/PROJECT` for GitLab or `gitee:OWNER/REPO` for Gitee. Put all flags before positional arguments. `--changes -` reads the plan from stdin. Both commands also accept `--provider`, `--api-base`, `--auth auto|env`, `--timeout` (default 5 minutes), and `--max-requests` (default 100, including retries; 0 is unlimited). Private hosts use the same repository and API-base conventions as search. Output is NDJSON only.
 
 The timeout includes reading the plan. A pipe that remains open after sending JSON still times out with a `cancelled` error; the command does not wait indefinitely for EOF.
 
@@ -117,7 +117,7 @@ The first two commands make only read requests, even with a write-capable token.
 - **GitHub:** a repository-scoped fine-grained token or GitHub App identity with Contents write and Pull requests write permissions. Repository rules can impose additional requirements, such as signed commits or restrictions on workflow-file changes. See [Git trees](https://docs.github.com/en/rest/git/trees#create-a-tree) and [PR creation](https://docs.github.com/en/rest/pulls/pulls#create-a-pull-request).
 - **GitLab:** an identity allowed to create source branches and merge requests, with API access (typically the `api` scope for a PAT or project access token). `write_repository` alone is not REST API write permission. Instance policies and branch protections still apply. See [token scopes](https://docs.gitlab.com/security/tokens/access_token_scopes/), [commits](https://docs.gitlab.com/api/commits/#create-a-commit), and [merge requests](https://docs.gitlab.com/api/merge_requests/#create-a-merge-request).
 
-- **Gitee (unreleased):** a token with repository access and `projects`/`pull_requests` scopes. Writes still use `GITRG_WRITE_TOKEN`; see [Gitee credentials](gitee.md#credentials-and-writes).
+- **Gitee:** a token with repository access and `projects`/`pull_requests` scopes. Writes still use `GITRG_WRITE_TOKEN`; see [Gitee credentials](gitee.md#credentials-and-writes).
 
 Use a repository-specific identity and keep the token out of plan files, command-line arguments, and source control. The token is sent in the Authorization header. Plan files, previews, and outputs contain source code and should receive the same access controls as the repository.
 

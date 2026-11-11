@@ -43,7 +43,7 @@ func (p *Prepared) Publish(ctx context.Context, remote provider.ChangeProvider) 
 		if baseHead != snapshot.Commit {
 			return result, ErrBaseChanged
 		}
-		result.Commit, err = remote.CreateChange(ctx, snapshot, plan.Branch, p.Message, p.Changes)
+		result.Commit, err = remote.CreateChange(ctx, snapshot, plan.Branch, plan.BaseBranch, p.Message, p.Changes)
 		if err != nil {
 			return result, fmt.Errorf("create commit/branch (rerun the same plan to recover): %w", err)
 		}

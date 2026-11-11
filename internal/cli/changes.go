@@ -67,7 +67,7 @@ func runChangeCommand(command string, args []string, stdout, stderr io.Writer) i
 	var timeout time.Duration
 	var maxRequests int
 	var identity agent.Identity
-	flags.StringVar(&providerName, "provider", "", "github or gitlab (required for private hosts)")
+	flags.StringVar(&providerName, "provider", "", "github, gitlab, or gitee (required for private hosts)")
 	flags.StringVar(&apiBase, "api-base", "", "override the provider API base URL")
 	flags.StringVar(&authMode, "auth", "auto", "read credential source: auto or env; writes require GITRG_WRITE_TOKEN")
 	flags.DurationVar(&timeout, "timeout", 5*time.Minute, "overall command timeout")

@@ -66,7 +66,7 @@ func clearCredentialEnvironment(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
 		"GITRG_TOKEN", "GITRG_WRITE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
-		"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI", "GITLAB_USER_ID",
+		"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "GITEE_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI", "GITLAB_USER_ID",
 	} {
 		t.Setenv(name, "")
 	}
@@ -118,6 +118,23 @@ func TestResolveCredentialsEnvModeNeverRunsHelper(t *testing.T) {
 	}
 	if len(runner.calls) != 0 {
 		t.Fatalf("helper call count = %d, want none for --auth env", len(runner.calls))
+	}
+}
+
+func TestResolveCredentialsGiteeContinuesAnonymouslyWithoutHelper(t *testing.T) {
+	clearCredentialEnvironment(t)
+	repo := Repository{Provider: "gitee", Host: "gitee.com", Project: "o/r", WebURL: "https://gitee.com/o/r", APIBase: "https://gitee.com/api/v5"}
+	lookup := func(string) (string, error) {
+		t.Fatal("Gitee must not invoke a CLI credential helper")
+		return "", nil
+	}
+	run := func(context.Context, string, []string, string, string, []string) (string, error) {
+		t.Fatal("Gitee must not run a CLI credential helper")
+		return "", nil
+	}
+	token, warning, err := resolveCredentials(context.Background(), repo, "auto", lookup, run)
+	if err != nil || token != "" || warning != "" {
+		t.Fatalf("resolveCredentials() = %q/%q/%v", token, warning, err)
 	}
 }
 
@@ -413,6 +430,7 @@ func TestCredentialEnvironmentRemovesCredentialAndHostOverrides(t *testing.T) {
 		"GH_HOST=evil.example",
 		"GH_REPO=evil/repo",
 		"GITLAB_TOKEN=gitlab-token",
+		"GITEE_TOKEN=gitee-token",
 		"GITLAB_ACCESS_TOKEN=gitlab-access-token",
 		"GITLAB_HOST=evil.example",
 		"GITLAB_URI=https://evil.example",
@@ -435,7 +453,7 @@ func TestCredentialEnvironmentRemovesCredentialAndHostOverrides(t *testing.T) {
 	}
 	for _, name := range []string{
 		"GITRG_TOKEN", "GITRG_WRITE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
-		"GH_HOST", "GH_REPO", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "GITLAB_HOST", "GITLAB_URI",
+		"GH_HOST", "GH_REPO", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "GITEE_TOKEN", "GITLAB_HOST", "GITLAB_URI",
 		"GL_HOST", "GITLAB_API_HOST", "GITLAB_SUBFOLDER", "OAUTH_TOKEN", "GLAB_IS_OAUTH2", "GLAB_USER",
 		"GITLAB_CLIENT_ID", "CI_JOB_TOKEN", "GIT_CONFIG_COUNT", "GIT_TRACE",
 	} {
@@ -609,7 +627,7 @@ func assertCredentialEnvironmentScrubbed(t *testing.T, env []string) {
 	for _, item := range env {
 		name, value, _ := strings.Cut(item, "=")
 		switch name {
-		case "GITRG_TOKEN", "GITRG_WRITE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI", "GITLAB_USER_ID":
+		case "GITRG_TOKEN", "GITRG_WRITE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "GITEE_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI", "GITLAB_USER_ID":
 			if value != "" {
 				t.Errorf("credential helper environment retained %s", name)
 			}

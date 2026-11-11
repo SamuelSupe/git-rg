@@ -64,11 +64,11 @@ func runIssueCommand(args []string, stdout, stderr io.Writer) int {
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, `Usage: git-rg issue create --title TITLE [--body TEXT | --body-file FILE] [--dry-run | --enable-write] [FLAGS] REPOSITORY
 
-Create a GitHub or GitLab issue. Output is NDJSON; exit codes are 0 (success) and 2 (error).
+Create a GitHub, GitLab, or Gitee issue. Output is NDJSON; exit codes are 0 (success) and 2 (error).
 Put flags before REPOSITORY. Use --body-file - to read Markdown from stdin.
 
 Writes are off by default. Creation requires --enable-write and GITRG_WRITE_TOKEN.
-GitHub fine-grained tokens need Issues: write; GitLab tokens need API access and permission to create issues.
+GitHub fine-grained tokens need Issues: write. GitLab tokens need API access. Gitee tokens need the issues scope.
 Read tokens and gh/glab logins are never used for creation.
 Dry-run needs no token and makes no remote requests, even with --enable-write.
 Agent identity is self-reported; the platform author remains the authenticated account.
@@ -93,7 +93,7 @@ Flags:`)
 	flags.StringVar(&bodyFile, "body-file", "", "read UTF-8 Markdown from a file; - reads stdin")
 	flags.BoolVar(&enableWrite, "enable-write", false, "explicitly enable issue creation for this invocation")
 	flags.BoolVar(&dryRun, "dry-run", false, "preview locally without creating an issue, even with --enable-write")
-	flags.StringVar(&providerName, "provider", "", "github or gitlab (required for private hosts)")
+	flags.StringVar(&providerName, "provider", "", "github, gitlab, or gitee (required for private hosts)")
 	flags.StringVar(&apiBase, "api-base", "", "override the provider API base URL")
 	flags.DurationVar(&timeout, "timeout", 5*time.Minute, "overall timeout, including body-file and stdin reading")
 	flags.IntVar(&maxRequests, "max-requests", 100, "maximum remote HTTP requests; 0 means unlimited")

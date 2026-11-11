@@ -2,7 +2,7 @@
 
 Available since **v0.7.0**. See the [installation guide](installation.md) and [release notes](releases/v0.7.0.md). Run `git-rg issue --help` or `git-rg issue create --help` for flags and examples.
 
-Unpublished local development changes also support [Gitee](gitee.md). It requires a build containing the adapter changes, which are not yet in a release or the published `main` branch.
+Current source builds also support [Gitee](gitee.md). The v0.7.0 release does not include the adapter.
 
 `git-rg issue create` creates one issue through the GitHub, GitLab, or Gitee API. It does not clone the repository or resolve a commit, so an empty repository can accept issues if the platform permits them. Remote writes are **off by default**.
 
@@ -59,6 +59,6 @@ Dry-run returns one `preview` event containing `repository`, `title`, the final 
 
 `number` is the repository-local GitHub number or GitLab IID. GitLab's `opened` state is normalized to `open`. `complete: true` requires a valid issue number, web URL, and state from the API response; preview never reports creation as complete.
 
-Gitee source builds return the alphanumeric issue number in `result.identifier` (for example `"IABC42"`) and omit `number`. GitHub/GitLab numeric `number` values remain unchanged. A Gitee result must include a valid identifier, web URL, and state to report completion.
+Gitee returns the alphanumeric issue number in `result.identifier` (for example `"IABC42"`) and omits `number`. GitHub/GitLab numeric `number` values remain unchanged. A Gitee result must include a valid identifier, web URL, and state to report completion.
 
 API rejections such as missing permission, disabled issues, validation failures, or rate limiting return `issue_create_failed`. Lost connections, request timeouts, server errors, blocked redirects, malformed responses, or incomplete success results can leave creation uncertain and return `issue_creation_uncertain`. These requests are not replayed. Check the repository's issue list before retrying, since an issue may already exist. If stdout fails after confirmed creation, the stderr diagnostic includes the created URL.

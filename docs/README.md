@@ -1,8 +1,8 @@
 # git-rg 文档导航 / Documentation guide
 
-当前稳定版为 **v0.7.0**。另有尚未发布的本地 **Gitee 适配器开发改动**，不包含在远端 `main` 中；使用它需要构建包含该改动的源码。Release 安装器、包管理器、`go install ...@v0.7.0` 和 `@latest` 不包含这些本地改动。
+当前稳定版为 **v0.7.0**。当前源码包含 **Gitee 适配器**，但 Release 安装器、包管理器、`go install ...@v0.7.0` 和 `@latest` 尚不包含该功能。
 
-The stable release is **v0.7.0**. An **unreleased Gitee adapter** exists in local development changes and is not included in the published `main` branch. It requires a build containing those changes; release installers, package managers, and `go install ...@latest` do not provide unpublished local changes.
+The stable release is **v0.7.0**. Current source builds include the **Gitee adapter**. Release installers, package managers, and `go install ...@latest` do not include it yet.
 
 ## 按任务查阅 / Guides by task
 
@@ -20,12 +20,12 @@ The stable release is **v0.7.0**. An **unreleased Gitee adapter** exists in loca
 
 | 能力 / Capability | GitHub、GitLab | Gitee |
 | --- | --- | --- |
-| `auto` / `exact` 搜索，`refs` | v0.7.0 | 本地开发预览，尚未发布 / Local development preview |
+| `auto` / `exact` 搜索，`refs` | v0.7.0 | 当前源码 / Current source |
 | `indexed` 搜索 | 取决于平台索引与权限 / Subject to index availability | 不支持，返回 `indexed_search_unsupported` / Unsupported |
-| `read`、`propose --dry-run` | 自 v0.5.0 起 / Since v0.5.0 | 本地开发预览，尚未发布 / Local development preview |
-| `propose --enable-write`：同仓库新分支、commit、草稿 PR/MR | 自 v0.5.0 起 / Since v0.5.0 | 本地开发预览，尚未发布 / Local development preview |
-| 仅配置 `GITRG_WRITE_TOKEN` 的读取回退 / Single-token read fallback | 自 v0.6.0 起 / Since v0.6.0 | 本地开发预览，尚未发布 / Local development preview |
-| `issue create`、本地 issue 预览 / Issue creation and local preview | 自 v0.7.0 起 / Since v0.7.0 | 本地开发预览，尚未发布 / Local development preview |
+| `read`、`propose --dry-run` | 自 v0.5.0 起 / Since v0.5.0 | 当前源码 / Current source |
+| `propose --enable-write`：同仓库新分支、commit、草稿 PR/MR | 自 v0.5.0 起 / Since v0.5.0 | 当前源码 / Current source |
+| 仅配置 `GITRG_WRITE_TOKEN` 的读取回退 / Single-token read fallback | 自 v0.6.0 起 / Since v0.6.0 | 当前源码 / Current source |
+| `issue create`、本地 issue 预览 / Issue creation and local preview | 自 v0.7.0 起 / Since v0.7.0 | 当前源码 / Current source |
 
 写入每次都要求 `--enable-write` 和具备对应权限的 `GITRG_WRITE_TOKEN`；`--dry-run` 优先。提案预览会读取远端，issue 预览完全在本地。搜索检查 `summary.complete`；发布检查 `result.complete`，后者不表示编译、测试或 CI 通过。
 

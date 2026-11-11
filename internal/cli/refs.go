@@ -109,7 +109,7 @@ func runRefs(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&kindValue, "kind", "all", "ref kind: all, branch, or tag")
 	flags.StringVar(&formatValue, "format", "ndjson", "output format: ndjson or text")
 	flags.IntVar(&maxRequests, "max-requests", 100, "maximum remote HTTP requests including retries; 0 means unlimited")
-	flags.StringVar(&providerValue, "provider", "", "github or gitlab (required for private hosts)")
+	flags.StringVar(&providerValue, "provider", "", "github, gitlab, or gitee (required for private hosts)")
 	flags.StringVar(&apiBase, "api-base", "", "override the provider API base URL")
 	flags.StringVar(&authMode, "auth", "auto", "credential source: auto (environment, then gh/glab) or env")
 	flags.DurationVar(&timeout, "timeout", 5*time.Minute, "overall command timeout")

@@ -1,6 +1,6 @@
-# Gitee development preview / Gitee 开发预览
+# Gitee support / Gitee 支持
 
-Gitee support exists in unpublished local development changes and is not available from the published `main` branch or a release. Build a source tree containing the adapter changes to use it; v0.7.0 installers, package managers, and `go install ...@latest` do not include it. The adapter targets [Gitee Open API v5](https://gitee.com/api/v5/swagger), including its batch-commit and draft-PR APIs.
+Gitee support is available in current source builds. It is not included in the v0.7.0 installers, package-manager packages, or `go install ...@latest`. The adapter targets [Gitee Open API v5](https://gitee.com/api/v5/swagger), including its batch-commit and draft-PR APIs.
 
 ## Commands
 
@@ -35,12 +35,12 @@ Writes remain **off by default** and always require `--enable-write` plus `GITRG
 
 Providing only `GITRG_WRITE_TOKEN` is sufficient for authenticated reads, previews, and explicitly enabled writes, as long as it has all required permissions. `--dry-run` takes precedence over `--enable-write`. Proposal previews make read requests; issue previews are entirely local.
 
-Publication submits the file actions as one commit from the pinned base SHA on a new source branch, preserves executable modes, and then creates a draft PR. It verifies the resulting commit parent, message, full tree, branch head, and PR before reporting `complete: true`. A matching plan can recover a lost response; unrelated existing branches are rejected. Writes are not automatically replayed.
+Publication checks that the base branch still points to the planned SHA, then submits one batch commit using the base branch name. It verifies the resulting commit parent, message, full tree (including executable modes), and source branch head before creating a draft PR. If the base branch moves between the check and the write, verification can reject a commit that Gitee has already created. A matching plan can recover a lost response. Writes are not automatically replayed.
 
 ## Search and output differences
 
 - `auto` and `exact` search the pinned tree/archive/blob content using the local matcher. Gitee's public API does not provide a code-search index, so `indexed` returns `indexed_search_unsupported` with exit code 2. `auto` skips index acceleration.
-- Archive URLs use a `ref` query parameter pinned to the commit SHA. Blob responses contain base64 JSON; decoded bytes are checked against the immutable blob identity by the read/search workflow. The shared response, request, and repository limits still apply. An unavailable archive falls back to blob requests within the remaining budget.
+- Archive and raw-file URLs use a `ref` query parameter pinned to the commit SHA. Raw bytes are checked against the immutable blob identity by the read/search workflow. A raw-file response of 401 or 404 falls back to base64 blob JSON by SHA. The shared response, request, and repository limits still apply. An unavailable archive falls back to file requests within the remaining budget.
 - Gitee issue identifiers are alphanumeric strings such as `IABC42`. Their result uses the additive `identifier` field and omits `number`; GitHub/GitLab keep their existing numeric `number` field. NDJSON remains schema v1.
 
 ```json
@@ -53,14 +53,14 @@ Public repository access does not guarantee anonymous archive downloads: an arch
 
 ## Validation boundary
 
-The local development adapter has been checked against public Gitee repository reads, refs, searches, and proposal previews. Its development HTTP fixtures cover authenticated requests, batch-commit and draft-PR publication, issue creation, conflicts, lost replies, attribution, and write gating. Authenticated live writes and private Gitee installations have not been validated; no real PR or issue was created during these checks.
+Public Gitee validation covers repository reads, refs, searches, and proposal previews. HTTP fixtures cover authenticated requests, batch-commit and draft-PR publication, issue creation, conflicts, lost replies, attribution, and write gating. The [Gitee support pull request](https://github.com/SamuelSupe/git-rg/pull/3) records the contributor's live draft PR and issue creation checks. Private Gitee installations still need validation.
 
 ## 中文速查
 
-本地开发改动已接入 Gitee，尚未发布到远端 `main` 或 Release。使用时须构建包含这些改动的源码；v0.7.0 安装包、包管理器和 `go install ...@latest` 不包含 Gitee。支持搜索、分支/tag 列表、完整文件读取、变更预览、批量提交及草稿 PR、issue 创建和 Agent 身份参数。
+当前源码构建已接入 Gitee；v0.7.0 安装包、包管理器和 `go install ...@latest` 尚不包含 Gitee。支持搜索、分支/tag 列表、完整文件读取、变更预览、批量提交及草稿 PR、issue 创建和 Agent 身份参数。
 
 使用 `gitee:OWNER/REPO` 即可；读取凭证优先级为 `GITRG_TOKEN` → `GITEE_TOKEN` → `GITRG_WRITE_TOKEN`。只配置一个具备相应权限的 `GITRG_WRITE_TOKEN` 也能完成整个流程。写入默认关闭，每次都需要 `--enable-write`；dry-run 不会创建远端内容。
 
 Gitee 使用 `auto` 或 `exact` 搜索，不支持 `indexed`。issue 结果的字符串编号放在 `result.identifier` 中，既有 GitHub/GitLab 的 `result.number` 类型不变。创建 issue 的响应不确定时应先检查远端；提案则使用相同计划和身份参数恢复。自建 Gitee 必须支持对应 Open API v5 接口，尤其是批量提交和草稿 PR。
 
-公开仓库的归档下载也可能需要认证；匿名访问会回退到逐文件 blob 读取，可能耗尽请求预算或平台配额。可配置有仓库读取权限的 token，或使用 `--glob` 缩小范围；预算不足会明确返回不完整结果。
+公开仓库的归档和 raw 文件接口也可能需要认证。归档不可用时会回退到逐文件读取，raw 接口返回 401 或 404 时会按 SHA 读取 blob。回退可能耗尽请求预算或平台配额。可配置有仓库读取权限的 token，或使用 `--glob` 缩小范围；预算不足会明确返回不完整结果。

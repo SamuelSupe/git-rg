@@ -21,6 +21,11 @@ func TestParseRepositoryForms(t *testing.T) {
 			want: Repository{Provider: "gitlab", Host: "gitlab.com", Project: "gitlab-org/gitlab-test", WebURL: "https://gitlab.com/gitlab-org/gitlab-test", APIBase: "https://gitlab.com/api/v4"},
 		},
 		{
+			name: "gitee shorthand",
+			raw:  "gitee:openeuler/docs",
+			want: Repository{Provider: "gitee", Host: "gitee.com", Project: "openeuler/docs", WebURL: "https://gitee.com/openeuler/docs", APIBase: "https://gitee.com/api/v5"},
+		},
+		{
 			name: "https clone URL",
 			raw:  "https://github.com/octocat/Hello-World.git",
 			want: Repository{Provider: "github", Host: "github.com", Project: "octocat/Hello-World", WebURL: "https://github.com/octocat/Hello-World", APIBase: "https://api.github.com"},
@@ -29,6 +34,11 @@ func TestParseRepositoryForms(t *testing.T) {
 			name: "ssh clone URL",
 			raw:  "git@gitlab.com:gitlab-org/gitlab-test.git",
 			want: Repository{Provider: "gitlab", Host: "gitlab.com", Project: "gitlab-org/gitlab-test", WebURL: "https://gitlab.com/gitlab-org/gitlab-test", APIBase: "https://gitlab.com/api/v4"},
+		},
+		{
+			name: "gitee ssh clone URL",
+			raw:  "git@gitee.com:openeuler/docs.git",
+			want: Repository{Provider: "gitee", Host: "gitee.com", Project: "openeuler/docs", WebURL: "https://gitee.com/openeuler/docs", APIBase: "https://gitee.com/api/v5"},
 		},
 		{
 			name:     "private host override",
@@ -62,6 +72,7 @@ func TestParseRepositoryRejectsUnsafeOrAmbiguousInputs(t *testing.T) {
 		{name: "empty", raw: ""},
 		{name: "missing project owner", raw: "github:octocat"},
 		{name: "github nested project", raw: "github:org/team/repo"},
+		{name: "gitee nested project", raw: "gitee:org/team/repo"},
 		{name: "shorthand provider conflict", raw: "github:octocat/repo", provider: "gitlab"},
 		{name: "unsupported URL scheme", raw: "ftp://github.com/octocat/repo"},
 		{name: "URL credentials", raw: "https://user:pass@github.com/octocat/repo"},
@@ -95,6 +106,7 @@ func TestResolveAPIBase(t *testing.T) {
 		{name: "github cloud", provider: "github", host: "github.com", want: "https://api.github.com"},
 		{name: "github enterprise", provider: "github", host: "ghe.example.test", want: "https://ghe.example.test/api/v3"},
 		{name: "gitlab self hosted", provider: "gitlab", host: "git.example.test", want: "https://git.example.test/api/v4"},
+		{name: "gitee self hosted", provider: "gitee", host: "git.example.test", want: "https://git.example.test/api/v5"},
 		{name: "override trims slash", provider: "gitlab", host: "git.example.test", override: "http://api.example.test/root///", want: "http://api.example.test/root"},
 	}
 	for _, tt := range tests {
