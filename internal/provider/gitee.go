@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
@@ -277,7 +278,9 @@ func (g *gitee) OpenBlob(ctx context.Context, snapshot Snapshot, entry Entry) (i
 		}
 		return newGitBlobVerifyingReader(resp.Body, entry.OID, size), nil
 	}
-	if !isNotFound(err) {
+	// Gitee can require login for raw files while serving public blobs anonymously.
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || (httpErr.Status != http.StatusNotFound && httpErr.Status != http.StatusUnauthorized) {
 		return nil, fmt.Errorf("read Gitee file %q: %w", entry.Path, err)
 	}
 

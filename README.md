@@ -39,7 +39,7 @@ Optional `--agent-name`, `--agent-model`, and `--agent-run-id` flags attach self
 
 ## What's new in v0.7.0
 
-- **Issue creation:** `git-rg issue create` accepts a title, Markdown body from a flag/file/stdin, and optional Agent name, model, and run ID for GitHub, GitLab, and Gitee.
+- **Issue creation:** `git-rg issue create` accepts a title, Markdown body from a flag/file/stdin, and optional Agent name, model, and run ID for GitHub and GitLab.
 - **Local preview:** `--dry-run` validates the final issue body without credentials or remote requests. It takes precedence over `--enable-write`.
 - **Explicit publication:** creating an issue requires `--enable-write` and a `GITRG_WRITE_TOKEN` with issue permissions. Unconfirmed requests are reported as uncertain and never automatically replayed.
 - **Updated help:** `git-rg issue --help` and `git-rg issue create --help` explain examples, permissions, attribution, limits, and retry behavior.

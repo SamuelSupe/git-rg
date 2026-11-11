@@ -222,6 +222,35 @@ func TestGiteeRejectsInvalidBlobResponse(t *testing.T) {
 	}
 }
 
+func TestGiteeReadsPublicBlobWhenRawRequiresLogin(t *testing.T) {
+	const oid = "b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/raw/README.md":
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/repos/o/r/git/blobs/" + oid:
+			writeJSON(t, w, map[string]string{
+				"sha": oid, "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte("hello")),
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := Repository{Project: "o/r", APIBase: server.URL}
+	snapshot := Snapshot{Repository: repo, Commit: "commit"}
+	reader, err := newGitee(repo, "", time.Second).OpenBlob(context.Background(), snapshot, Entry{Path: "README.md", OID: oid, Size: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	content, err := io.ReadAll(reader)
+	if err != nil || string(content) != "hello" {
+		t.Fatalf("blob = %q, error = %v", content, err)
+	}
+}
+
 func TestGiteeVerifiesRawAndFallbackBlobContent(t *testing.T) {
 	const helloOID = "b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0"
 	for _, rawAvailable := range []bool{true, false} {
