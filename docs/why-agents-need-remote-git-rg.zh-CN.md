@@ -2,7 +2,7 @@
 
 > 面向开发者社区的技术文章
 >
-> 2026-09-30 核对：稳定版 v0.7.0；Gitee 为当前工作区中尚未发布的功能。
+> 2026-11-11 更新：v0.8.0 已加入 Gitee 支持。
 >
 > 命令及平台边界以[文档导航](README.md)和各功能手册为准。
 
@@ -12,7 +12,7 @@ Agent 处理代码任务时，第一步往往不是修改文件，而是回答�
 
 这些问题的共同点是“搜索和理解”，不是“拥有一个本地 checkout”。在小型项目里，先 `git clone` 再搜索很自然；在大型公司中，仓库数量、历史大小、并发 agent 数和凭证边界会把这个默认动作放大为基础设施问题。每个 agent 都下载 Git 历史、创建工作树、维护目录、清理缓存，然后只使用其中很小的一部分内容，成本与风险都不匹配。
 
-`git-rg` 提供了一个更窄的边界：先把 branch、tag 或 commit 解析为不可变 commit SHA，再通过 GitHub/GitLab API（当前工作区还包括尚未发布的 Gitee 适配器）读取选定快照所需的内容，在本地用 Go RE2 匹配，并以 NDJSON 输出可编排的结果。它不创建目标仓库的 clone、checkout 或工作树，也不下载 Git 历史。
+`git-rg` 先把 branch、tag 或 commit 解析为不可变 commit SHA，再通过 GitHub、GitLab 和 Gitee API 读取选定快照所需的内容，在本地用 Go RE2 匹配，并以 NDJSON 输出可编排的结果。它不创建目标仓库的 clone、checkout 或工作树，也不下载 Git 历史。
 
 本文的核心判断很简单：对 agent 的“发现、定位、核对和跨仓库检索”阶段，远端 git-rg 应当是默认工具；需要少量文本变更时，可通过 `read` 和显式启用的 `propose` 提交同仓库草稿 PR/MR；需要构建、测试、bisect、历史分析或离线操作时，再准备本地 checkout。
 
@@ -253,7 +253,7 @@ git-rg issue create --enable-write --title "Investigate regression" \
 
 Agent 名称、模型和 run ID 是自报身份，不改变平台作者，也不是 issue 幂等键。提案响应丢失时，用相同计划、仓库/API base 和身份恢复；issue 响应不确定时，先检查远端列表，再决定是否重试。两者都不自动重放写请求。详见 [Issue creation](issues.md)。
 
-GitLab 使用 `gitlab:GROUP/PROJECT`；包含未发布 Gitee 适配器的构建使用 `gitee:OWNER/REPO`。Gitee issue 的字符串编号放在 `result.identifier`，GitHub/GitLab 保留数字 `result.number`。不能把本地 Gitee 功能当成 v0.7.0 安装包已支持的能力。
+GitLab 使用 `gitlab:GROUP/PROJECT`；Gitee 使用 `gitee:OWNER/REPO`。Gitee issue 的字符串编号放在 `result.identifier`，GitHub/GitLab 保留数字 `result.number`。
 
 ## 8. 什么时候用 git-rg，什么时候需要本地 checkout
 
@@ -296,13 +296,13 @@ GitLab 使用 `gitlab:GROUP/PROJECT`；包含未发布 Gitee 适配器的构建�
 
 ## 依据与范围说明
 
-本文依据 2026-09-30 的 v0.7.0 发布状态及当前工作区源码核对。Gitee 属于尚未发布的工作区改动，不引用外部统计，也不把示例数字写成行业测量。主要依据包括：
+本文依据 v0.8.0 发布内容及源码核对。文中的数字用于示例。主要依据包括：
 
 - `README.md` 与 `README.zh-CN.md`：无 clone 语义、仓库地址、搜索模式、NDJSON、refs、权限、缓存和资源边界；
-- `internal/provider/git_repository.go`、`internal/provider/github.go`、`internal/provider/gitlab.go`、`internal/provider/gitee.go`：ref/commit resolve、tree/blob/archive 和 refs 分页；
+- `internal/provider/github.go`、`internal/provider/gitlab.go`、`internal/provider/gitee.go`：ref/commit resolve、tree/blob/archive 和 refs 分页；
 - `internal/search/runner.go`、`internal/search/archive.go`：完整 tree、exact/auto/indexed 语义、archive/blob 校验和完整性处理；
 - `internal/search/types.go`、`internal/output/output.go`：NDJSON event 和 summary 字段；
 - `internal/cache/cache.go`、`internal/cli/cli.go`：默认 512 MiB immutable cache 和 `--no-cache` 行为；
 - `internal/cli/changes.go`、`internal/proposal/`、`internal/cli/issues.go`：完整文件读取、变更计划、写入开关、Agent 身份、提案恢复与 issue 不确定响应。
 
-产品边界也必须保留：v0.7.0 支持 GitHub/GitLab，当前工作区新增尚未发布的 Gitee；没有离线模式、本地路径搜索、历史搜索或通用 Git server 协议。文本变更仅支持同仓库新分支，不更新已有分支，不处理二进制、LFS、symlink、submodule 或自动合并，也不执行仓库代码。`exact`/`auto` 的完整扫描仍可能读取整个选定 commit，`indexed` 永远是不完整模式。任何生产接入都应在自己的 provider、权限、仓库和资源预算上做验收。
+产品边界也必须保留：v0.8.0 支持 GitHub、GitLab 和 Gitee；没有离线模式、本地路径搜索、历史搜索或通用 Git server 协议。文本变更仅支持同仓库新分支，不更新已有分支，不处理二进制、LFS、symlink、submodule 或自动合并，也不执行仓库代码。`exact`/`auto` 的完整扫描仍可能读取整个选定 commit，`indexed` 永远是不完整模式。任何生产接入都应在自己的 provider、权限、仓库和资源预算上做验收。

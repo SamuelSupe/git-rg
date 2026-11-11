@@ -45,7 +45,7 @@ function Normalize-Version {
     }
 
     if ($InputVersion -cnotmatch '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$') {
-        Throw-InstallerError "invalid release version: $InputVersion (expected v0.7.0 or 0.7.0)"
+        Throw-InstallerError "invalid release version: $InputVersion (expected vMAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH)"
     }
 
     return $InputVersion

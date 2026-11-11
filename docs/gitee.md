@@ -1,6 +1,6 @@
 # Gitee support / Gitee 支持
 
-Gitee support is available in current source builds. It is not included in the v0.7.0 installers, package-manager packages, or `go install ...@latest`. The adapter targets [Gitee Open API v5](https://gitee.com/api/v5/swagger), including its batch-commit and draft-PR APIs.
+Gitee support is available in v0.8.0 and later. See the [installation guide](installation.md) for GitHub Release and Go module installation. The adapter targets [Gitee Open API v5](https://gitee.com/api/v5/swagger), including its batch-commit and draft-PR APIs.
 
 ## Commands
 
@@ -57,7 +57,7 @@ Public Gitee validation covers repository reads, refs, searches, and proposal pr
 
 ## 中文速查
 
-当前源码构建已接入 Gitee；v0.7.0 安装包、包管理器和 `go install ...@latest` 尚不包含 Gitee。支持搜索、分支/tag 列表、完整文件读取、变更预览、批量提交及草稿 PR、issue 创建和 Agent 身份参数。
+v0.8.0 起支持 Gitee，GitHub Release 安装包和 Go 模块均可使用。支持搜索、分支/tag 列表、完整文件读取、变更预览、批量提交及草稿 PR、issue 创建和 Agent 身份参数。
 
 使用 `gitee:OWNER/REPO` 即可；读取凭证优先级为 `GITRG_TOKEN` → `GITEE_TOKEN` → `GITRG_WRITE_TOKEN`。只配置一个具备相应权限的 `GITRG_WRITE_TOKEN` 也能完成整个流程。写入默认关闭，每次都需要 `--enable-write`；dry-run 不会创建远端内容。
 

@@ -16,11 +16,11 @@
 
 > 在不可变 commit 上搜索 GitHub 和 GitLab 仓库，不 clone 目标仓库。
 
-`git-rg` 是一个用 Go 编写的远程代码搜索命令行工具。它会先把分支、tag 或 commit 解析为固定的 commit SHA，再按所选搜索路径从 API 按需读取内容，默认输出适合 agent 消费的 NDJSON。它支持公开、私有以及自建的 GitHub/GitLab 实例；不会创建本地工作树，也不会下载 Git 历史。
+`git-rg` 是一个用 Go 编写的远程代码搜索命令行工具。它会先把分支、tag 或 commit 解析为固定的 commit SHA，再按所选搜索路径从 API 按需读取内容，默认输出适合 agent 消费的 NDJSON。它支持公开、私有以及自建的 GitHub、GitLab 和 Gitee 实例；不会创建本地工作树，也不会下载 Git 历史。
 
-**Gitee 源码支持**：`gitee:OWNER/REPO` 可用于搜索、refs、完整文件读取、提案预览、批量提交及草稿 PR、issue 创建。写入默认关闭，v0.7.0 安装包尚不包含此功能，详见 [Gitee 使用说明与接口差异](docs/gitee.md)。
+**v0.8.0 新增 Gitee 支持。** `gitee:OWNER/REPO` 可用于搜索、refs、完整文件读取、提案预览、批量提交及草稿 PR、issue 创建。写入默认关闭。详见 [Gitee 使用说明与接口差异](docs/gitee.md)。
 
-**v0.7.0 新增：创建 GitHub/GitLab issue，并携带 Agent 身份。** 可先在本地预览正文，再显式启用创建。示例和权限见[issue 创建说明](docs/issues.md)。原有读取与提案工作流继续支持单 token： 仅配置 `GITRG_WRITE_TOKEN`，即可认证搜索、refs、文件读取、预览及显式启用的发布操作。agent 生成 JSON 变更计划，`git-rg` 校验原始文件、预览 diff，并在新分支上创建 commit 和草稿 PR/MR。详见[使用说明与变更格式](docs/agent-changes.md)。
+**创建 issue 并携带 Agent 身份。** 可先在本地预览正文，再显式启用创建。示例和权限见[issue 创建说明](docs/issues.md)。原有读取与提案工作流继续支持单 token： 仅配置 `GITRG_WRITE_TOKEN`，即可认证搜索、refs、文件读取、预览及显式启用的发布操作。agent 生成 JSON 变更计划，`git-rg` 校验原始文件、预览 diff，并在新分支上创建 commit 和草稿 PR/MR。详见[使用说明与变更格式](docs/agent-changes.md)。
 
 ```sh
 # 只读：返回完整文件、固定 commit SHA 和 blob SHA。
@@ -37,20 +37,19 @@ GitLab 使用 `gitlab:GROUP/PROJECT`，相同命令会创建草稿 MR。普通�
 
 可选参数 `--agent-name`、`--agent-model`、`--agent-run-id` 会把 Agent 自报的身份信息附加到 PR/MR 描述。平台作者仍是凭证对应的账号。JSON 输入格式和重试规则见 [Agent 身份说明](docs/agent-changes.md#agent-identity)。
 
-<a id="whats-new-in-v070"></a>
-## v0.7.0 更新
+<a id="whats-new-in-v080"></a>
+## v0.8.0 更新
 
-- **创建 issue**：`git-rg issue create` 支持 GitHub/GitLab，可传入标题、来自参数/文件/stdin 的 Markdown 正文，以及 Agent 名称、模型和运行 ID。
-- **本地预览**：`--dry-run` 校验并输出最终正文，不需要凭证，不请求远端，优先于 `--enable-write`。
-- **显式发布**：创建 issue 需要 `--enable-write` 和具备 issue 权限的 `GITRG_WRITE_TOKEN`；无法确认的请求明确返回不确定状态，不自动重放。
-- **更新帮助**：`git-rg issue --help` 和 `git-rg issue create --help` 提供示例、权限、身份、限制及重试说明。
+- **Gitee 搜索与读取。** 支持 `auto`、`exact` 搜索、分支和 tag 列表，以及按固定 commit 读取文件。raw 接口要求登录或返回 404 时，会按 SHA 回退到 blob。
+- **Gitee 提案与 issue。** 可以预览，或用 `--enable-write` 和具备相应权限的 `GITRG_WRITE_TOKEN` 发布。Gitee issue 在 NDJSON schema v1 中使用字符串 `result.identifier`。
+- **Gitee 凭证。** Gitee.com 依次检查 `GITRG_TOKEN`、`GITEE_TOKEN`、`GITRG_WRITE_TOKEN`。
 
-详见 [v0.7.0 发布说明](docs/releases/v0.7.0.md)。既有搜索/提案行为、凭证优先级、退出码及 NDJSON schema v1 保持兼容。
+详见 [v0.8.0 发布说明](docs/releases/v0.8.0.md)。既有搜索/提案行为、凭证优先级、退出码及 NDJSON schema v1 保持兼容。
 
 <a id="create-an-issue"></a>
 ## 创建 issue
 
-自 v0.7.0 起支持创建 GitHub/GitLab issue，传入标题、Markdown 正文及可选的 Agent 身份：
+创建 issue 时可传入标题、Markdown 正文及可选的 Agent 身份：
 
 ```sh
 # 本地校验和预览，不需要 token，也不发送远端请求。
@@ -61,7 +60,7 @@ git-rg issue create --enable-write --title "描述发现的问题" --body-file i
   --agent-name "Review Agent" --agent-run-id "run-123" github:OWNER/REPO
 ```
 
-GitLab 使用 `gitlab:GROUP/PROJECT`。写入默认关闭，`--dry-run` 优先于 `--enable-write`。创建请求不自动重试；响应丢失时，请先检查远端 issue 列表，再决定是否重新执行。权限、stdin、输出和限制见[issue 创建说明](docs/issues.md)。
+GitLab 使用 `gitlab:GROUP/PROJECT`，Gitee 使用 `gitee:OWNER/REPO`。写入默认关闭，`--dry-run` 优先于 `--enable-write`。创建请求不自动重试；响应丢失时，请先检查远端 issue 列表，再决定是否重新执行。权限、stdin、输出和限制见[issue 创建说明](docs/issues.md)。
 
 ## 安装并运行
 
@@ -69,7 +68,7 @@ Linux/macOS，安装到用户目录：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.7.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.8.0 --bin-dir "$HOME/.local/bin"
 git-rg --version
 ```
 
@@ -78,7 +77,7 @@ Windows PowerShell：
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.7.0
+& $installer -Version v0.8.0
 git-rg --version
 ```
 
@@ -104,9 +103,9 @@ git-rg refs github:OWNER/REPO
 
 ## 目录
 
-- [v0.7.0 更新](#whats-new-in-v070)
+- [v0.8.0 更新](#whats-new-in-v080)
 - [创建 issue](#create-an-issue)
-- [Gitee（开发预览）](docs/gitee.md)
+- [Gitee](docs/gitee.md)
 - [为什么不需要 clone](#why-no-clone)
 - [安装](#install)
 - [仓库地址](#repository-addresses)
@@ -128,34 +127,34 @@ git-rg refs github:OWNER/REPO
 - `exact` 仍可能读取所选 commit 中所有符合条件的普通文本文件。“不 clone”省去工作树和历史传输，并不表示完整搜索不读取仓库内容或不需要网络。
 - SSH 风格的 clone URL 只用于解析地址。`git-rg` 不使用 SSH 认证，也不使用 Git 传输。
 
-v0.7.0 发布版支持 GitHub 和 GitLab，当前源码构建也包含 [Gitee 支持](docs/gitee.md)。不提供离线搜索、本地路径搜索、历史搜索或通用 Git 服务器协议。搜索和 ref 查询保持只读；写操作必须通过显式启用的写入命令执行。预构建二进制通过 GitHub Releases 发布。
+不提供离线搜索、本地路径搜索、历史搜索或通用 Git 服务器协议。搜索和 ref 查询保持只读；写操作必须通过显式启用的写入命令执行。预构建二进制通过 GitHub Releases 发布。
 
 <a id="install"></a>
 ## 安装
 
-v0.7.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
+v0.8.0 是当前支持版本。此前的 v0.x 版本仍可下载用于复现或回滚，但已经 EOL；兼容性和生命周期策略见 [SUPPORT.md](SUPPORT.md)。预构建二进制运行时不需要 Go；源码构建和 `go install` 需要 Go 1.26 或更高版本。
 
 ### 预构建平台矩阵
 
 以下六种组合属于 Tier 1，每个 Release 都会提供：
 
-| 操作系统 | 架构 | v0.7.0 资产 | 支持级别 |
+| 操作系统 | 架构 | v0.8.0 资产 | 支持级别 |
 | --- | --- | --- | --- |
-| Linux | amd64（x86_64） | `git-rg_v0.7.0_linux_amd64.tar.gz` | Tier 1 |
-| Linux | arm64 | `git-rg_v0.7.0_linux_arm64.tar.gz` | Tier 1 |
-| macOS | amd64（x86_64） | `git-rg_v0.7.0_darwin_amd64.tar.gz` | Tier 1 |
-| macOS | arm64 | `git-rg_v0.7.0_darwin_arm64.tar.gz` | Tier 1 |
-| Windows | amd64（x86_64） | `git-rg_v0.7.0_windows_amd64.zip` | Tier 1 |
-| Windows | arm64 | `git-rg_v0.7.0_windows_arm64.zip` | Tier 1 |
+| Linux | amd64（x86_64） | `git-rg_v0.8.0_linux_amd64.tar.gz` | Tier 1 |
+| Linux | arm64 | `git-rg_v0.8.0_linux_arm64.tar.gz` | Tier 1 |
+| macOS | amd64（x86_64） | `git-rg_v0.8.0_darwin_amd64.tar.gz` | Tier 1 |
+| macOS | arm64 | `git-rg_v0.8.0_darwin_arm64.tar.gz` | Tier 1 |
+| Windows | amd64（x86_64） | `git-rg_v0.8.0_windows_amd64.zip` | Tier 1 |
+| Windows | arm64 | `git-rg_v0.8.0_windows_arm64.zip` | Tier 1 |
 
-每个 archive 包含一个顶层版本目录和一个可执行文件。v0.7.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
+每个 archive 包含一个顶层版本目录和一个可执行文件。v0.8.0 Release 有 9 个资产：6 个平台 archive、`install.sh`、`install.ps1` 和 `checksums.txt`。checksum 文件覆盖两个安装脚本和 6 个 archive。
 
 ### GitHub Release（手工下载）
 
-从 [v0.7.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.7.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
+从 [v0.8.0 Release](https://github.com/SamuelSupe/git-rg/releases/tag/v0.8.0) 下载匹配的资产和 `checksums.txt`，解压前先校验：
 
 ```sh
-version=v0.7.0
+version=v0.8.0
 asset="git-rg_${version}_linux_amd64.tar.gz"
 base="https://github.com/SamuelSupe/git-rg/releases/download/${version}"
 curl -fL -o "$asset" "$base/$asset"
@@ -173,7 +172,7 @@ macOS 如果没有 `sha256sum`，可改用 `shasum -a 256`；按机器选择 `da
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
-  | sh -s -- --version v0.7.0 --bin-dir "$HOME/.local/bin"
+  | sh -s -- --version v0.8.0 --bin-dir "$HOME/.local/bin"
 ```
 
 使用 `--version VERSION` 固定版本；省略时使用 latest。使用 `--bin-dir DIRECTORY` 指定安装目录。需要可审阅的安装过程时，先下载并检查脚本，再执行它。完整参数和失败处置见 [docs/installation.md](docs/installation.md)。
@@ -185,7 +184,7 @@ curl -fsSL https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.sh \
 ```powershell
 $installer = Join-Path $env:TEMP "git-rg-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/SamuelSupe/git-rg/main/install.ps1 -OutFile $installer
-& $installer -Version v0.7.0
+& $installer -Version v0.8.0
 git-rg --version
 ```
 
@@ -203,6 +202,8 @@ brew uninstall git-rg
 ```
 
 Formula 使用对应的 GitHub Release archive 和 SHA-256 值。
+
+Homebrew 和 Scoop 由各自仓库维护版本。要直接安装 v0.8.0，可使用 GitHub Release 安装器或固定版本的 `go install` 命令。
 
 ### Scoop
 
@@ -222,7 +223,7 @@ scoop uninstall git-rg
 
 ```sh
 # 固定到当前支持版本。
-go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.7.0
+go install github.com/SamuelSupe/git-rg/cmd/git-rg@v0.8.0
 
 # 或跟随最新模块版本。
 go install github.com/SamuelSupe/git-rg/cmd/git-rg@latest
@@ -239,7 +240,7 @@ go build -trimpath -o ./git-rg ./cmd/git-rg
 
 其他 `GOOS/GOARCH` 组合可以用 Go 1.26 构建，但属于 best effort，不提供 Tier 1 archive 或专门的 Release smoke 保证。
 
-未注入版本的源码构建显示 `git-rg dev`；`go install` 显示模块版本。使用 Gitee 需要当前源码构建，直到新 Release 包含该适配器。详见 [Gitee 可用范围](docs/gitee.md)。
+未注入版本的源码构建显示 `git-rg dev`；`go install` 显示模块版本。
 
 <a id="repository-addresses"></a>
 ## 仓库地址
@@ -255,8 +256,6 @@ git@HOST:GROUP/PROJECT.git
 ```
 
 公开云服务示例：
-
-`gitee:` 简写和 Gitee URL 需要当前源码构建，示例见 [Gitee 文档](docs/gitee.md#commands)。
 
 ```sh
 git-rg TODO github:OWNER/REPO

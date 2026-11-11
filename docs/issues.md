@@ -1,8 +1,6 @@
 # Creating issues
 
-Available since **v0.7.0**. See the [installation guide](installation.md) and [release notes](releases/v0.7.0.md). Run `git-rg issue --help` or `git-rg issue create --help` for flags and examples.
-
-Current source builds also support [Gitee](gitee.md). The v0.7.0 release does not include the adapter.
+Issue creation is available since **v0.7.0** for GitHub and GitLab and **v0.8.0** for [Gitee](gitee.md). See the [installation guide](installation.md). Run `git-rg issue --help` or `git-rg issue create --help` for flags and examples.
 
 `git-rg issue create` creates one issue through the GitHub, GitLab, or Gitee API. It does not clone the repository or resolve a commit, so an empty repository can accept issues if the platform permits them. Remote writes are **off by default**.
 

@@ -1,8 +1,8 @@
 # Agent changes and draft PRs/MRs
 
-Read, preview, and publication are available since **v0.5.0**. **v0.6.0** adds single-token authentication for reading and publishing. The current release is **v0.7.0**, which also adds [issue creation](issues.md) with the same Agent identity parameters. See the [installation guide](installation.md) and [v0.7.0 release notes](releases/v0.7.0.md).
+Read, preview, and publication are available since **v0.5.0**. **v0.6.0** adds single-token authentication for reading and publishing. **v0.7.0** adds [issue creation](issues.md) with the same Agent identity parameters. See the [installation guide](installation.md) and [v0.7.0 release notes](releases/v0.7.0.md).
 
-Current source builds also support [Gitee](gitee.md), including batch commits, draft PRs, and Agent identity. The v0.7.0 release does not include the adapter.
+**v0.8.0** adds [Gitee](gitee.md) support for reads, previews, batch commits, and draft PRs with Agent identity.
 
 An external agent supplies the edited text. `git-rg` reads immutable files, validates a JSON plan, previews a diff, and publishes a single commit on a new branch followed by a draft GitHub/Gitee PR or GitLab MR. It uses the provider API without cloning a target repository, executing its code, or invoking Git. Writes are **off by default**.
 
@@ -98,7 +98,7 @@ This attribution does not change the authenticated platform author or Git commit
 
 ## Credentials
 
-Gitee source builds prefer `GITRG_TOKEN`, then public-cloud `GITEE_TOKEN`, then `GITRG_WRITE_TOKEN` for reads, and never reuse `gh`/`glab` logins. See [Gitee credentials](gitee.md#credentials-and-writes).
+Gitee.com reads check `GITRG_TOKEN`, `GITEE_TOKEN`, then `GITRG_WRITE_TOKEN`. See [Gitee credentials](gitee.md#credentials-and-writes) for self-managed hosts.
 
 `propose --enable-write` requires `GITRG_WRITE_TOKEN`. It does not fall back to `GITRG_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`, `GITEE_TOKEN`, or a `gh`/`glab` login. This token authenticates both validation reads and publication writes in that invocation. Merely setting it does not enable writing.
 

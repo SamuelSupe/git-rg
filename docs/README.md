@@ -1,8 +1,8 @@
 # git-rg 文档导航 / Documentation guide
 
-当前稳定版为 **v0.7.0**。当前源码包含 **Gitee 适配器**，但 Release 安装器、包管理器、`go install ...@v0.7.0` 和 `@latest` 尚不包含该功能。
+当前稳定版 **v0.8.0** 新增 [Gitee 支持](gitee.md)，可通过 GitHub Release 和 Go 模块安装。
 
-The stable release is **v0.7.0**. Current source builds include the **Gitee adapter**. Release installers, package managers, and `go install ...@latest` do not include it yet.
+The stable release **v0.8.0** adds [Gitee support](gitee.md) through GitHub Release installers and Go module installation.
 
 ## 按任务查阅 / Guides by task
 
@@ -14,18 +14,18 @@ The stable release is **v0.7.0**. Current source builds include the **Gitee adap
 | issue 正文、Agent 身份、权限与不确定响应 / Create issues and handle uncertain responses | [Issue creation](issues.md) |
 | Gitee 地址、凭证、索引限制与 API 差异 / Gitee usage and API differences | [Gitee](gitee.md) |
 | 平台、API、schema 与版本生命周期 / Compatibility and lifecycle | [Support policy](../SUPPORT.md) |
-| Agent 工具选型与工作流背景 / Agent workflow background | [中文技术文章](why-agents-need-remote-git-rg.zh-CN.md) · [PDF](../output/pdf/why-agents-need-remote-git-rg.zh-CN.pdf) |
+| Agent 工具选型与工作流背景 / Agent workflow background | [中文技术文章](why-agents-need-remote-git-rg.zh-CN.md) · [v0.7.0 时期的 PDF / PDF archive](../output/pdf/why-agents-need-remote-git-rg.zh-CN.pdf) |
 
 ## 功能与版本 / Availability
 
 | 能力 / Capability | GitHub、GitLab | Gitee |
 | --- | --- | --- |
-| `auto` / `exact` 搜索，`refs` | v0.7.0 | 当前源码 / Current source |
+| `auto` / `exact` 搜索，`refs` | v0.7.0 | 自 v0.8.0 起 / Since v0.8.0 |
 | `indexed` 搜索 | 取决于平台索引与权限 / Subject to index availability | 不支持，返回 `indexed_search_unsupported` / Unsupported |
-| `read`、`propose --dry-run` | 自 v0.5.0 起 / Since v0.5.0 | 当前源码 / Current source |
-| `propose --enable-write`：同仓库新分支、commit、草稿 PR/MR | 自 v0.5.0 起 / Since v0.5.0 | 当前源码 / Current source |
-| 仅配置 `GITRG_WRITE_TOKEN` 的读取回退 / Single-token read fallback | 自 v0.6.0 起 / Since v0.6.0 | 当前源码 / Current source |
-| `issue create`、本地 issue 预览 / Issue creation and local preview | 自 v0.7.0 起 / Since v0.7.0 | 当前源码 / Current source |
+| `read`、`propose --dry-run` | 自 v0.5.0 起 / Since v0.5.0 | 自 v0.8.0 起 / Since v0.8.0 |
+| `propose --enable-write`：同仓库新分支、commit、草稿 PR/MR | 自 v0.5.0 起 / Since v0.5.0 | 自 v0.8.0 起 / Since v0.8.0 |
+| 仅配置 `GITRG_WRITE_TOKEN` 的读取回退 / Single-token read fallback | 自 v0.6.0 起 / Since v0.6.0 | 自 v0.8.0 起 / Since v0.8.0 |
+| `issue create`、本地 issue 预览 / Issue creation and local preview | 自 v0.7.0 起 / Since v0.7.0 | 自 v0.8.0 起 / Since v0.8.0 |
 
 写入每次都要求 `--enable-write` 和具备对应权限的 `GITRG_WRITE_TOKEN`；`--dry-run` 优先。提案预览会读取远端，issue 预览完全在本地。搜索检查 `summary.complete`；发布检查 `result.complete`，后者不表示编译、测试或 CI 通过。
 
@@ -33,7 +33,7 @@ Writes require `--enable-write` and a suitably permitted `GITRG_WRITE_TOKEN` on 
 
 ## 发布记录 / Release history
 
-[v0.7.0](releases/v0.7.0.md) · [v0.6.0](releases/v0.6.0.md) · [v0.5.0](releases/v0.5.0.md) · [v0.4.1](releases/v0.4.1.md) · [v0.4.0](releases/v0.4.0.md) · [v0.3.0](releases/v0.3.0.md)
+[v0.8.0](releases/v0.8.0.md) · [v0.7.0](releases/v0.7.0.md) · [v0.6.0](releases/v0.6.0.md) · [v0.5.0](releases/v0.5.0.md) · [v0.4.1](releases/v0.4.1.md) · [v0.4.0](releases/v0.4.0.md) · [v0.3.0](releases/v0.3.0.md)
 
 发布说明记录对应版本的行为、迁移和当时的验证，旧版不作为当前使用手册；最新稳定版之外的 v0.x 已 EOL。需要复现旧版时，使用发布说明中固定 tag 的文档链接。v0.1.0 和 v0.2.0 的记录见 [GitHub Releases](https://github.com/SamuelSupe/git-rg/releases)。
 
