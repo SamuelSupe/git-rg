@@ -51,6 +51,10 @@ func (r *Runner) Run(ctx context.Context, snapshot provider.Snapshot, emit Emitt
 		return finish(&Error{Code: "invalid_glob", Err: err})
 	}
 	if r.Config.Mode == ModeIndexed {
+		if support, ok := r.Provider.(provider.IndexedSearchSupport); ok && !support.SupportsIndexedSearch() {
+			summary.Reason = "unsupported_provider"
+			return finish(&Error{Code: "indexed_search_unsupported", Err: provider.ErrIndexedSearchUnsupported})
+		}
 		literal := r.Matcher.LiteralPrefix()
 		if literal == "" {
 			summary.Reason = "unsupported_pattern"
@@ -116,7 +120,7 @@ func (r *Runner) Run(ctx context.Context, snapshot provider.Snapshot, emit Emitt
 		defer cached.Close()
 	}
 	literal := r.Matcher.LiteralPrefix()
-	if !preferBlobs && r.Config.Mode == ModeAuto && cached == nil && literal != "" && r.canUseAutoIndex() {
+	if !preferBlobs && r.Config.Mode == ModeAuto && cached == nil && literal != "" && r.canUseAutoIndex() && r.supportsIndexedSearch() {
 		candidates, searchErr := r.Provider.SearchCandidates(ctx, snapshot, literal)
 		if searchErr != nil {
 			if err := emit(Event{Type: "warning", Code: "index_unavailable", Message: searchErr.Error()}); err != nil {
@@ -151,6 +155,11 @@ func (r *Runner) canUseAutoIndex() bool {
 	// Keep enough request budget for candidate pagination/retries and the archive.
 	stats := r.Provider.RequestStats()
 	return stats.RequestLimit == 0 || stats.RequestLimit-stats.Requests >= minAutoIndexRequestHeadroom
+}
+
+func (r *Runner) supportsIndexedSearch() bool {
+	support, ok := r.Provider.(provider.IndexedSearchSupport)
+	return !ok || support.SupportsIndexedSearch()
 }
 
 func (r *Runner) preferBlobScan(entries []provider.Entry, totalFiles int) bool {

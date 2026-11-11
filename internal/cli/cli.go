@@ -21,11 +21,12 @@ import (
 
 const usageText = `Usage: git-rg [FLAGS] PATTERN REPOSITORY
 
-Search one remote GitHub or GitLab repository without cloning it.
+Search one remote GitHub, GitLab, or Gitee repository without cloning it.
 
 Repository forms:
   github:OWNER/REPO
   gitlab:GROUP/PROJECT
+  gitee:OWNER/REPO
   https://HOST/OWNER/REPO.git
   git@HOST:GROUP/PROJECT.git
 
@@ -134,7 +135,7 @@ func runSearch(args []string, stdout, stderr io.Writer, version string) (exitCod
 	flags.StringVar(&formatValue, "format", "ndjson", "output format: ndjson or text")
 	flags.IntVar(&maxResults, "max-results", 200, "maximum matching lines; 0 means unlimited")
 	flags.IntVar(&maxRequests, "max-requests", 100, "maximum remote HTTP requests including retries; 0 means unlimited")
-	flags.StringVar(&providerValue, "provider", "", "github or gitlab (required for private hosts)")
+	flags.StringVar(&providerValue, "provider", "", "github, gitlab, or gitee (required for private hosts)")
 	flags.StringVar(&apiBase, "api-base", "", "override the provider API base URL")
 	flags.StringVar(&authMode, "auth", "auto", "credential source: auto (environment, then gh/glab) or env")
 	flags.BoolVar(&noCache, "no-cache", false, "disable the on-disk immutable object cache")

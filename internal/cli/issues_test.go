@@ -26,6 +26,8 @@ func TestRunIssuePreviewAndCreate(t *testing.T) {
 		{"github", "https://github.example.test/o/r", "/repos/o/r/issues", true},
 		{"gitlab", "gitlab:group/sub/r", "/projects/group%2Fsub%2Fr/issues", true},
 		{"gitlab", "https://gitlab.example.test/group/sub/r", "/projects/group%2Fsub%2Fr/issues", false},
+		{"gitee", "gitee:o/r", "/repos/o/issues", true},
+		{"gitee", "https://gitee.example.test/o/r", "/repos/o/issues", false},
 	} {
 		t.Run(tc.repository, func(t *testing.T) {
 			t.Setenv("GITRG_TOKEN", "read-token")
@@ -53,7 +55,15 @@ func TestRunIssuePreviewAndCreate(t *testing.T) {
 					bodyKey = "description"
 					response = map[string]any{"id": 900, "iid": 42, "web_url": issueURL, "state": "opened"}
 				}
-				if len(payload) != 2 || payload["title"] != title || payload[bodyKey] != previewBody {
+				wantPayloadLength := 2
+				if tc.platform == "gitee" {
+					wantPayloadLength = 3
+					response = map[string]any{"number": "IABC42", "html_url": issueURL, "state": "open"}
+					if payload["repo"] != "r" {
+						t.Errorf("Gitee repo payload = %q", payload["repo"])
+					}
+				}
+				if len(payload) != wantPayloadLength || payload["title"] != title || payload[bodyKey] != previewBody {
 					t.Errorf("payload differs from preview: %+v", payload)
 				}
 				w.WriteHeader(http.StatusCreated)
@@ -99,7 +109,11 @@ func TestRunIssuePreviewAndCreate(t *testing.T) {
 			t.Setenv("GITRG_TOKEN", "read-token")
 			t.Setenv("GITRG_WRITE_TOKEN", "write-token")
 			status, event := run("--enable-write")
-			if status != 0 || event.Type != "issue" || event.Result == nil || !event.Result.Complete || event.Result.Number != 42 || event.Result.URL != issueURL || event.Result.State != "open" || requests.Load() != 1 {
+			wantNumber, wantIdentifier := 42, ""
+			if tc.platform == "gitee" {
+				wantNumber, wantIdentifier = 0, "IABC42"
+			}
+			if status != 0 || event.Type != "issue" || event.Result == nil || !event.Result.Complete || event.Result.Number != wantNumber || event.Result.Identifier != wantIdentifier || event.Result.URL != issueURL || event.Result.State != "open" || requests.Load() != 1 {
 				t.Fatalf("create: status=%d event=%+v requests=%d", status, event, requests.Load())
 			}
 		})
@@ -153,7 +167,7 @@ func TestRunIssueRejectsInvalidInputBeforeRequests(t *testing.T) {
 }
 
 func TestRunIssueDoesNotRetryUnconfirmedCreation(t *testing.T) {
-	for _, platform := range []string{"github", "gitlab"} {
+	for _, platform := range []string{"github", "gitlab", "gitee"} {
 		for _, tc := range []struct {
 			name, response, code string
 			status               int

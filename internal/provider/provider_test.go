@@ -621,10 +621,13 @@ func TestTokenPrecedence(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "github")
 	t.Setenv("GH_TOKEN", "gh")
 	t.Setenv("GITLAB_TOKEN", "gitlab")
+	t.Setenv("GITEE_TOKEN", "gitee")
 	githubCloud := Repository{Provider: "github", APIBase: "https://api.github.com"}
 	githubEnterprise := Repository{Provider: "github", APIBase: "https://ghe.example.test/api/v3"}
 	gitlabCloud := Repository{Provider: "gitlab", APIBase: "https://gitlab.com/api/v4"}
 	gitlabSelfHosted := Repository{Provider: "gitlab", APIBase: "https://git.example.test/api/v4"}
+	giteeCloud := Repository{Provider: "gitee", APIBase: "https://gitee.com/api/v5"}
+	giteeSelfHosted := Repository{Provider: "gitee", APIBase: "https://gitee.example.test/api/v5"}
 	if got := tokenFor(githubCloud); got != "generic" {
 		t.Fatalf("tokenFor(github) = %q, want generic", got)
 	}
@@ -639,21 +642,28 @@ func TestTokenPrecedence(t *testing.T) {
 	if got := tokenFor(gitlabCloud); got != "gitlab" {
 		t.Fatalf("tokenFor(gitlab) = %q, want gitlab", got)
 	}
+	if got := tokenFor(giteeCloud); got != "gitee" {
+		t.Fatalf("tokenFor(gitee) = %q, want gitee", got)
+	}
 	if got := tokenFor(githubEnterprise); got != "write" {
 		t.Fatalf("tokenFor(githubEnterprise) = %q, want write", got)
 	}
 	if got := tokenFor(gitlabSelfHosted); got != "write" {
 		t.Fatalf("tokenFor(gitlabSelfHosted) = %q, want write", got)
 	}
+	if got := tokenFor(giteeSelfHosted); got != "write" {
+		t.Fatalf("tokenFor(giteeSelfHosted) = %q, want write", got)
+	}
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITLAB_TOKEN", "")
-	for _, repo := range []Repository{githubCloud, githubEnterprise, gitlabCloud, gitlabSelfHosted} {
+	t.Setenv("GITEE_TOKEN", "")
+	for _, repo := range []Repository{githubCloud, githubEnterprise, gitlabCloud, gitlabSelfHosted, giteeCloud, giteeSelfHosted} {
 		if got := tokenFor(repo); got != "write" {
 			t.Fatalf("tokenFor(%s) = %q, want write", repo.APIBase, got)
 		}
 	}
 	t.Setenv("GITRG_WRITE_TOKEN", "")
-	for _, repo := range []Repository{githubCloud, githubEnterprise, gitlabCloud, gitlabSelfHosted} {
+	for _, repo := range []Repository{githubCloud, githubEnterprise, gitlabCloud, gitlabSelfHosted, giteeCloud, giteeSelfHosted} {
 		if got := tokenFor(repo); got != "" {
 			t.Fatalf("tokenFor(%s) = %q, want empty", repo.APIBase, got)
 		}

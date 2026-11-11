@@ -1,6 +1,6 @@
-# Gitee development preview / Gitee 开发预览
+# Gitee support / Gitee 支持
 
-Gitee support exists in unpublished local development changes and is not available from the published `main` branch or a release. Build a source tree containing the adapter changes to use it; v0.7.0 installers, package managers, and `go install ...@latest` do not include it. The adapter targets [Gitee Open API v5](https://gitee.com/api/v5/swagger), including its batch-commit and draft-PR APIs.
+Gitee support is available in current source builds. It is not included in the v0.7.0 installers, package-manager packages, or `go install ...@latest`. The adapter targets [Gitee Open API v5](https://gitee.com/api/v5/swagger), including its batch-commit and draft-PR APIs.
 
 ## Commands
 
@@ -40,7 +40,7 @@ Publication submits the file actions as one commit from the pinned base SHA on a
 ## Search and output differences
 
 - `auto` and `exact` search the pinned tree/archive/blob content using the local matcher. Gitee's public API does not provide a code-search index, so `indexed` returns `indexed_search_unsupported` with exit code 2. `auto` skips index acceleration.
-- Archive URLs use a `ref` query parameter pinned to the commit SHA. Blob responses contain base64 JSON; decoded bytes are checked against the immutable blob identity by the read/search workflow. The shared response, request, and repository limits still apply. An unavailable archive falls back to blob requests within the remaining budget.
+- Archive and raw-file URLs use a `ref` query parameter pinned to the commit SHA. Raw bytes are checked against the immutable blob identity by the read/search workflow. If an installation does not expose the raw-file endpoint, the adapter falls back to base64 blob JSON. The shared response, request, and repository limits still apply. An unavailable archive falls back to file requests within the remaining budget.
 - Gitee issue identifiers are alphanumeric strings such as `IABC42`. Their result uses the additive `identifier` field and omits `number`; GitHub/GitLab keep their existing numeric `number` field. NDJSON remains schema v1.
 
 ```json
@@ -53,11 +53,11 @@ Public repository access does not guarantee anonymous archive downloads: an arch
 
 ## Validation boundary
 
-The local development adapter has been checked against public Gitee repository reads, refs, searches, and proposal previews. Its development HTTP fixtures cover authenticated requests, batch-commit and draft-PR publication, issue creation, conflicts, lost replies, attribution, and write gating. Authenticated live writes and private Gitee installations have not been validated; no real PR or issue was created during these checks.
+The adapter has been checked against public Gitee repository reads, refs, searches, and proposal previews. Its HTTP fixtures cover authenticated requests, batch-commit and draft-PR publication, issue creation, conflicts, lost replies, attribution, and write gating. Authenticated live writes and private Gitee installations have not been validated; no real PR or issue was created during these checks.
 
 ## 中文速查
 
-本地开发改动已接入 Gitee，尚未发布到远端 `main` 或 Release。使用时须构建包含这些改动的源码；v0.7.0 安装包、包管理器和 `go install ...@latest` 不包含 Gitee。支持搜索、分支/tag 列表、完整文件读取、变更预览、批量提交及草稿 PR、issue 创建和 Agent 身份参数。
+当前源码构建已接入 Gitee；v0.7.0 安装包、包管理器和 `go install ...@latest` 尚不包含 Gitee。支持搜索、分支/tag 列表、完整文件读取、变更预览、批量提交及草稿 PR、issue 创建和 Agent 身份参数。
 
 使用 `gitee:OWNER/REPO` 即可；读取凭证优先级为 `GITRG_TOKEN` → `GITEE_TOKEN` → `GITRG_WRITE_TOKEN`。只配置一个具备相应权限的 `GITRG_WRITE_TOKEN` 也能完成整个流程。写入默认关闭，每次都需要 `--enable-write`；dry-run 不会创建远端内容。
 

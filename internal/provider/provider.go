@@ -13,6 +13,8 @@ func NewWithOptions(repository Repository, options Options) (Provider, error) {
 		return newGitHubWithOptions(repository, options.Token, options), nil
 	case "gitlab":
 		return newGitLabWithOptions(repository, options.Token, options), nil
+	case "gitee":
+		return newGiteeWithOptions(repository, options.Token, options), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider %q", repository.Provider)
 	}
@@ -37,6 +39,11 @@ func tokenFor(repository Repository) string {
 			return token
 		}
 	}
+	if repository.Provider == "gitee" && apiHost == "gitee.com" {
+		if token := os.Getenv("GITEE_TOKEN"); token != "" {
+			return token
+		}
+	}
 	return os.Getenv("GITRG_WRITE_TOKEN")
 }
 
@@ -50,6 +57,15 @@ func setGitHubHeaders(token string) func(*http.Request) {
 }
 
 func setGitLabHeaders(token string) func(*http.Request) {
+	return func(req *http.Request) {
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		req.Header.Set("User-Agent", "git-rg/1")
+	}
+}
+
+func setGiteeHeaders(token string) func(*http.Request) {
 	return func(req *http.Request) {
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)

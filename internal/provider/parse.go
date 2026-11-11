@@ -28,6 +28,11 @@ func ParseRepository(raw, explicitProvider, apiBase string) (Repository, error) 
 			return Repository{}, errors.New("repository shorthand conflicts with --provider")
 		}
 		providerName, host, project = "gitlab", "gitlab.com", strings.TrimPrefix(raw, "gitlab:")
+	case strings.HasPrefix(raw, "gitee:"):
+		if providerName != "" && providerName != "gitee" {
+			return Repository{}, errors.New("repository shorthand conflicts with --provider")
+		}
+		providerName, host, project = "gitee", "gitee.com", strings.TrimPrefix(raw, "gitee:")
 	case strings.Contains(raw, "://"):
 		u, err := url.Parse(raw)
 		if err != nil {
@@ -49,7 +54,7 @@ func ParseRepository(raw, explicitProvider, apiBase string) (Repository, error) 
 		at := strings.LastIndex(raw, "@")
 		colon := strings.Index(raw, ":")
 		if colon <= at+1 || colon == len(raw)-1 {
-			return Repository{}, errors.New("repository must be a github:/gitlab: shorthand or clone URL")
+			return Repository{}, errors.New("repository must be a github:/gitlab:/gitee: shorthand or clone URL")
 		}
 		host, project = raw[at+1:colon], raw[colon+1:]
 	}
@@ -65,11 +70,13 @@ func ParseRepository(raw, explicitProvider, apiBase string) (Repository, error) 
 			providerName = "github"
 		case "gitlab.com":
 			providerName = "gitlab"
+		case "gitee.com":
+			providerName = "gitee"
 		default:
-			return Repository{}, errors.New("--provider is required for a private GitHub or GitLab host")
+			return Repository{}, errors.New("--provider is required for a private GitHub, GitLab, or Gitee host")
 		}
 	}
-	if providerName != "github" && providerName != "gitlab" {
+	if providerName != "github" && providerName != "gitlab" && providerName != "gitee" {
 		return Repository{}, fmt.Errorf("unsupported provider %q", providerName)
 	}
 
@@ -79,6 +86,9 @@ func ParseRepository(raw, explicitProvider, apiBase string) (Repository, error) 
 	}
 	if providerName == "github" && len(parts) != 2 {
 		return Repository{}, errors.New("GitHub repository path must be owner/repository")
+	}
+	if providerName == "gitee" && len(parts) != 2 {
+		return Repository{}, errors.New("Gitee repository path must be owner/repository")
 	}
 	for _, part := range parts {
 		if part == "" || part == "." || part == ".." {
@@ -117,6 +127,9 @@ func resolveAPIBase(providerName, host, override string) (string, error) {
 			return "https://api.github.com", nil
 		}
 		return "https://" + host + "/api/v3", nil
+	}
+	if providerName == "gitee" {
+		return "https://" + host + "/api/v5", nil
 	}
 	return "https://" + host + "/api/v4", nil
 }

@@ -14,11 +14,11 @@
 
 [Documentation guide](docs/README.md) · [Installation](docs/installation.md) · [Agent changes](docs/agent-changes.md) · [Issue creation](docs/issues.md) · [Support policy](SUPPORT.md)
 
-> Search GitHub and GitLab repositories at an immutable commit—without cloning the target repository.
+> Search GitHub, GitLab, and Gitee repositories at an immutable commit—without cloning the target repository.
 
 `git-rg` is a small Go command-line tool for remote code search. It resolves a branch, tag, or commit to a fixed commit SHA, reads only the API content needed for the selected search path, and emits agent-friendly NDJSON by default. It supports public, private, and self-managed GitHub/GitLab instances; it does not create a local checkout or download Git history.
 
-**Gitee development preview (unreleased local changes):** search, refs, full-file reads, proposal previews, batch commits with draft PRs, and issue creation now accept `gitee:OWNER/REPO`. Writes remain off by default. The adapter is not yet published to `main` or included in v0.7.0 installers; see [Gitee usage and API differences](docs/gitee.md).
+**Gitee source support:** search, refs, full-file reads, proposal previews, batch commits with draft PRs, and issue creation accept `gitee:OWNER/REPO`. Writes remain off by default. Gitee is not included in v0.7.0 installers; see [Gitee usage and API differences](docs/gitee.md).
 
 **New in v0.7.0: create GitHub and GitLab issues with Agent identity.** Preview issue content locally, then explicitly enable creation. See [Issue creation](docs/issues.md) for examples and permissions. The existing read and proposal workflow continues to support a single token: Set only `GITRG_WRITE_TOKEN` to authenticate search, refs, file reads, and previews as well as explicitly enabled publication. An agent supplies a JSON change plan, and `git-rg` validates the original files, previews the diff, and publishes a commit and draft PR/MR on a new branch. See [Agent changes](docs/agent-changes.md) for the input format and recovery contract.
 
@@ -39,7 +39,7 @@ Optional `--agent-name`, `--agent-model`, and `--agent-run-id` flags attach self
 
 ## What's new in v0.7.0
 
-- **Issue creation:** `git-rg issue create` accepts a title, Markdown body from a flag/file/stdin, and optional Agent name, model, and run ID for GitHub and GitLab.
+- **Issue creation:** `git-rg issue create` accepts a title, Markdown body from a flag/file/stdin, and optional Agent name, model, and run ID for GitHub, GitLab, and Gitee.
 - **Local preview:** `--dry-run` validates the final issue body without credentials or remote requests. It takes precedence over `--enable-write`.
 - **Explicit publication:** creating an issue requires `--enable-write` and a `GITRG_WRITE_TOKEN` with issue permissions. Unconfirmed requests are reported as uncertain and never automatically replayed.
 - **Updated help:** `git-rg issue --help` and `git-rg issue create --help` explain examples, permissions, attribution, limits, and retry behavior.
@@ -104,7 +104,7 @@ git-rg refs github:OWNER/REPO
 
 - [What's new in v0.7.0](#whats-new-in-v070)
 - [Create an issue](#create-an-issue)
-- [Gitee (development preview)](docs/gitee.md)
+- [Gitee](docs/gitee.md)
 - [Why no clone](#why-no-clone)
 - [Install](#install)
 - [Repository addresses](#repository-addresses)
@@ -125,7 +125,7 @@ git-rg refs github:OWNER/REPO
 - `exact` can still read every matching ordinary text file in the selected commit. “Without cloning” removes the checkout and history transfer; it does not mean that a full search reads no repository content or uses no network.
 - SSH-style clone URLs are accepted for address parsing only. `git-rg` does not use SSH authentication or the Git transport.
 
-The v0.7.0 release supports GitHub and GitLab; unpublished local development changes also include [Gitee support](docs/gitee.md). There is no offline search mode, local-path search, history search, or generic Git-server protocol. Search and ref queries remain read-only; writes require an explicitly enabled write command. Pre-built binaries are published through GitHub Releases.
+The v0.7.0 release supports GitHub and GitLab. Current source builds also include [Gitee support](docs/gitee.md). There is no offline search mode, local-path search, history search, or generic Git-server protocol. Search and ref queries remain read-only; writes require an explicitly enabled write command. Pre-built binaries are published through GitHub Releases.
 
 ## Install
 
@@ -235,7 +235,7 @@ go build -trimpath -o ./git-rg ./cmd/git-rg
 
 Other `GOOS/GOARCH` combinations may be built with Go 1.26, but are best effort and do not receive a Tier 1 archive or dedicated release smoke guarantee.
 
-An unversioned source build reports `git-rg dev`; `go install` reports the module version. Gitee requires a source tree containing the adapter changes; cloning the published `main` branch does not provide them until those changes are published. See [Gitee availability](docs/gitee.md).
+An unversioned source build reports `git-rg dev`; `go install` reports the module version. Gitee requires a source build until a release includes the adapter. See [Gitee availability](docs/gitee.md).
 
 ## Repository addresses
 
@@ -251,13 +251,14 @@ git@HOST:GROUP/PROJECT.git
 
 Public cloud examples:
 
-The `gitee:` shorthand and Gitee URLs require a build containing the unreleased adapter; see [Gitee examples](docs/gitee.md#commands).
+The `gitee:` shorthand and Gitee URLs require a current source build; see [Gitee examples](docs/gitee.md#commands).
 
 ```sh
 git-rg TODO github:OWNER/REPO
 git-rg -F "release marker" https://github.com/OWNER/REPO.git
 git-rg --provider gitlab TODO gitlab:GROUP/PROJECT
 git-rg --ref v1.2.3 TODO https://gitlab.com/GROUP/PROJECT.git
+git-rg -F TODO gitee:OWNER/REPO
 ```
 
 GitHub Enterprise Server and self-managed GitLab require an explicit provider. By default their API bases are `https://HOST/api/v3` and `https://HOST/api/v4`; override them with `--api-base` when the deployment uses a different path:
@@ -356,7 +357,7 @@ All flags must appear before `PATTERN REPOSITORY`.
 | `--format FORMAT` | `ndjson` | Select `ndjson` or `text`. |
 | `--max-results NUM` | `200` | Maximum matching lines; `0` means unlimited. |
 | `--max-requests NUM` | `100` | Remote request budget, including retries and redirects; `0` means unlimited. |
-| `--provider NAME` | inferred | `github`, `gitlab`, or unreleased `gitee`; required for private/self-managed hosts. |
+| `--provider NAME` | inferred | `github`, `gitlab`, or `gitee`; required for private/self-managed hosts. |
 | `--api-base URL` | inferred | Override the provider API base URL. |
 | `--auth MODE` | `auto` | Use environment credentials, then the target GitHub/GitLab host's `gh`/`glab` login; `env` disables CLI lookup. Gitee uses environment credentials only. |
 | `--no-cache` | off | Disable this run's persistent disk-cache reads, writes, and pruning. |
@@ -455,9 +456,10 @@ Environment lookup runs first in both authentication modes. Since v0.6.0, `GITRG
 | Any provider, including self-managed | `GITRG_TOKEN` is always checked first and wins when non-empty. |
 | GitHub API host `api.github.com` | After `GITRG_TOKEN`, `GITHUB_TOKEN`, then `GH_TOKEN`, then `GITRG_WRITE_TOKEN`. Custom API hosts do not use these cloud variables. |
 | GitLab API host `gitlab.com` | After `GITRG_TOKEN`, `GITLAB_TOKEN`, then `GITRG_WRITE_TOKEN`. Custom API hosts do not use this cloud variable. |
+| Gitee API host `gitee.com` | After `GITRG_TOKEN`, `GITEE_TOKEN`, then `GITRG_WRITE_TOKEN`. Custom API hosts do not use this cloud variable. |
 | Other API hosts | `GITRG_TOKEN`, then `GITRG_WRITE_TOKEN`. |
 
-Gitee.com source builds check `GITRG_TOKEN` → `GITEE_TOKEN` → `GITRG_WRITE_TOKEN`. `GITEE_TOKEN` is only used when the Gitee API host is `gitee.com`; custom hosts use the self-managed order. Gitee never reads `gh`/`glab` credentials and continues anonymously without an environment token. See [Gitee permissions](docs/gitee.md#credentials-and-writes).
+Gitee never reads `gh`/`glab` credentials and continues anonymously without an environment token. See [Gitee permissions](docs/gitee.md#credentials-and-writes).
 
 If none is set, `auto` tries the matching GitHub/GitLab CLI login; `env` continues anonymously. A read token that is present but rejected by the API does not trigger a retry with `GITRG_WRITE_TOKEN`.
 

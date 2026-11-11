@@ -45,6 +45,9 @@ func resolveCredentials(ctx context.Context, repository Repository, mode string,
 	if token := tokenFor(repository); token != "" || mode == "env" {
 		return token, "", nil
 	}
+	if repository.Provider == "gitee" {
+		return "", "", nil
+	}
 	helperCtx, cancel := context.WithTimeout(ctx, credentialTimeout)
 	defer cancel()
 	helper := "gh"

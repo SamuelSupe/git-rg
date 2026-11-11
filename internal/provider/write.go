@@ -30,7 +30,7 @@ type ChangeProvider interface {
 	Provider
 	ListChangeTree(context.Context, Snapshot) ([]Entry, error)
 	BranchHead(context.Context, Snapshot, string) (string, error)
-	CreateChange(context.Context, Snapshot, string, string, []FileChange) (string, error)
+	CreateChange(context.Context, Snapshot, string, string, string, []FileChange) (string, error)
 	FindPullRequest(context.Context, Snapshot, string, string) (*PullRequest, error)
 	CreatePullRequest(context.Context, Snapshot, string, string, string, string) (PullRequest, error)
 }

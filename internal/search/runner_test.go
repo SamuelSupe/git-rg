@@ -73,6 +73,29 @@ func TestRunnerExactScansInPathOrderAndSkipsBinary(t *testing.T) {
 	}
 }
 
+func TestRunnerSkipsUnsupportedIndexInAutoAndRejectsIndexedMode(t *testing.T) {
+	base := &fakeProvider{
+		entries: []provider.Entry{{Path: "a.txt", OID: "a", Mode: "100644"}},
+		blobs:   map[string][]byte{"a": []byte("needle\n")},
+	}
+	remote := &noIndexProvider{fakeProvider: base}
+	matcher, err := NewMatcher(MatcherConfig{Pattern: "needle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{Provider: remote, Cache: cache.Disabled(), Matcher: matcher, Config: Config{Mode: ModeAuto, Workers: 1}}
+	summary, err := runner.Run(context.Background(), testSnapshot(), func(Event) error { return nil })
+	if err != nil || !summary.Complete || summary.MatchedLines != 1 || base.searchCount() != 0 {
+		t.Fatalf("auto summary/error/searches = %#v/%v/%d", summary, err, base.searchCount())
+	}
+
+	runner.Config.Mode = ModeIndexed
+	summary, err = runner.Run(context.Background(), testSnapshot(), func(Event) error { return nil })
+	if err == nil || ErrorCode(err) != "indexed_search_unsupported" || summary.Reason != "unsupported_provider" || base.searchCount() != 0 {
+		t.Fatalf("indexed summary/error/searches = %#v/%v/%d", summary, err, base.searchCount())
+	}
+}
+
 func TestRunnerExactSupplementsArchiveOmissionFromTreeBlob(t *testing.T) {
 	remote := &fakeProvider{
 		entries: []provider.Entry{
@@ -1983,6 +2006,12 @@ type fakeProvider struct {
 	activeBlobs  int
 	maxActive    int
 }
+
+type noIndexProvider struct {
+	*fakeProvider
+}
+
+func (*noIndexProvider) SupportsIndexedSearch() bool { return false }
 
 func (f *fakeProvider) Name() string { return "fake" }
 

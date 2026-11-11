@@ -107,6 +107,10 @@ type Provider interface {
 	RequestStats() RequestStats
 }
 
+type IndexedSearchSupport interface {
+	SupportsIndexedSearch() bool
+}
+
 type RefLister interface {
 	ListRefs(context.Context, Repository, RefKind) ([]Ref, error)
 }

@@ -25,7 +25,7 @@
 - 搜索支持单仓库、单个 branch/tag/commit ref；不支持跨组织/跨 group 搜索、Git 历史搜索或通用 Git 服务器协议。`read` 可读取固定 commit 的完整文本；`propose` 可按 JSON 计划在同仓库新分支提交文本变更并创建草稿 PR/MR。
 - 搜索、refs、read 和 propose --dry-run 默认使用 --auth auto：优先读取 GITRG_TOKEN、公共 GitHub 的 GITHUB_TOKEN/GH_TOKEN 或公共 GitLab 的 GITLAB_TOKEN，随后检查 GITRG_WRITE_TOKEN。此回退从 v0.6.0 开始生效，同时适用于 --auth env 和自建实例。没有环境变量凭证时，auto 尝试目标 GitHub/GitLab 站点当前的 gh/glab 登录；Gitee 不使用 CLI 凭证。自动复用要求 HTTPS 和匹配的 API origin；自建实例也遵守此边界。--auth env 可关闭 CLI 凭证读取，跨 origin API 使用显式环境变量凭证。token 不作为 CLI 参数，不写入日志或缓存；git-rg 不增加凭证存储。glab 的隐藏 credential helper、凭证库和 OAuth 刷新必须受所用版本支持；不兼容时提示 warning 并匿名继续。
 
-本地开发改动已新增 [Gitee Open API v5 支持](docs/gitee.md)，尚未发布到 Release 或远端 `main`，需要包含适配器改动的源码构建：包括 `auto`/`exact` 搜索、refs、read、提案预览、批量提交及草稿 PR、issue 和 Agent 身份。Gitee 不提供公开代码索引 API，`indexed` 返回 `indexed_search_unsupported`。创建 issue 使用字符串 `result.identifier`，不会改变 GitHub/GitLab 数字 `result.number` 的类型。Gitee.com 读取支持 `GITEE_TOKEN`，并继续支持只配置 `GITRG_WRITE_TOKEN`；写入默认关闭，自建实例按其 API 能力验收。
+当前源码已新增 [Gitee Open API v5 支持](docs/gitee.md)，但 v0.7.0 Release 尚未包含：包括 `auto`/`exact` 搜索、refs、read、提案预览、批量提交及草稿 PR、issue 和 Agent 身份。Gitee 不提供公开代码索引 API，`indexed` 返回 `indexed_search_unsupported`。创建 issue 使用字符串 `result.identifier`，不会改变 GitHub/GitLab 数字 `result.number` 的类型。Gitee.com 读取支持 `GITEE_TOKEN`，并继续支持只配置 `GITRG_WRITE_TOKEN`；写入默认关闭，自建实例按其 API 能力验收。
 
 ## 搜索结果完整性
 
